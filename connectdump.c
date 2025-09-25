@@ -1527,8 +1527,20 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
 
     		apr_brigade_cleanup(bb);
 
+        	if (size == 0 && !request->request.host) {
+
+            	/* client hung up early, tear everything down */
+                apr_file_printf(cd->err,
+                		"connectdump[%d]: connection closed unexpectedly from %pI\n",
+    					request->number, request->request.sa);
+
+            	apr_pool_destroy(request->pool);
+
+            	break;
+        	}
+
     		/* empty line, are our headers done? */
-        	if (size == 0) {
+        	else if (size == 0) {
 
         	    apr_file_printf(cd->err,
         	    		"connectdump[%d]: end of headers from %pI, starting pump\n",
