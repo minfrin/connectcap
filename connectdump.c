@@ -674,8 +674,7 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
 	    			if (APR_INET == sa->sa_family ) {
 	    				struct sockaddr_in *in = (struct sockaddr_in *)sa;
 
-	    				if (in->sin_len == pump->pump.lsa->sa.sin.sin_len &&
-	    						!memcmp(&in->sin_addr, &pump->pump.lsa->sa.sin.sin_addr, sizeof(struct in_addr))) {
+	    				if (!memcmp(&in->sin_addr, &pump->pump.lsa->sa.sin.sin_addr, sizeof(struct in_addr))) {
 	    	    			name = apr_pstrdup(pool, dev->name);
 	    	    			break;
 	    				}
@@ -684,8 +683,7 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
 	    			else if (APR_INET6 == sa->sa_family) {
 	    				struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)sa;
 
-	    				if (in6->sin6_len == pump->pump.lsa->sa.sin6.sin6_len &&
-	    						!memcmp(&in6->sin6_addr, &pump->pump.lsa->sa.sin6.sin6_addr, sizeof(struct in6_addr))) {
+	    				if (!memcmp(&in6->sin6_addr, &pump->pump.lsa->sa.sin6.sin6_addr, sizeof(struct in6_addr))) {
 	    	    			name = apr_pstrdup(pool, dev->name);
 	    	    			break;
 	    				}
