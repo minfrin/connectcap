@@ -2165,7 +2165,10 @@ static int timer_comp(void *a, void *b)
     apr_time_t t1 = (apr_time_t) ((event_t *)a)->when;
     apr_time_t t2 = (apr_time_t) ((event_t *)b)->when;
 
-    if (!t1) {
+    if (t1 == t2) {
+    	return 0;
+    }
+    else if (!t1) {
     	return 1;
     }
     else if (!t2) {
