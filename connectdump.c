@@ -40,7 +40,7 @@
 #define DEFAULT_BUFFER_SIZE 1 * 1024 * 1024
 #define DEFAULT_LISTENBACKLOG 511
 #define DEFAULT_POLLSOCKETS 10240
-#define DEFAULT_REQUEST_TIMEOUT 5
+#define DEFAULT_CONN_TIMEOUT 5
 #define DEFAULT_PUMP_TIMEOUT 30
 #define DEFAULT_CAPTURE_TIMEOUT 2
 #define DEFAULT_PCAP_DEVICE "any"
@@ -96,7 +96,7 @@ typedef struct listen_t {
 
 } listen_t;
 
-typedef struct request_t {
+typedef struct conn_t {
     /**
      * Remote apr_sockaddr_t to connect to
      */
@@ -143,7 +143,7 @@ typedef struct request_t {
     apr_port_t port;
 
     /**
-     * The pump associated with the request
+     * The pump associated with the connection
      */
     struct event_t *pump;
 
@@ -161,7 +161,7 @@ typedef struct request_t {
      * Is the username hashed by the client?
      */
     unsigned int userhash:1;
-} request_t;
+} conn_t;
 
 typedef struct pump_t {
     /**
@@ -215,9 +215,9 @@ typedef struct pump_t {
     apr_port_t port;
 
     /**
-     * The request that spawned this pump
+     * The connection that spawned this pump
      */
-    struct event_t *request;
+    struct event_t *conn;
 
     /**
      * The capture that was spawned by this pump
@@ -300,7 +300,7 @@ typedef struct capture_t {
 typedef enum event_e {
     EVENT_NONE,
     EVENT_LISTEN,
-    EVENT_REQUEST,
+    EVENT_CONN,
     EVENT_PUMP,
     EVENT_CAPTURE,
 } event_e;
@@ -315,7 +315,7 @@ typedef struct event_t {
     event_e type;
     union {
         listen_t listen;
-        request_t request;
+        conn_t conn;
         pump_t pump;
         capture_t capture;
     };
@@ -493,7 +493,7 @@ static void event_verify(apr_array_header_t *events)
 
         switch(e->type) {
         case EVENT_LISTEN:
-        case EVENT_REQUEST:
+        case EVENT_CONN:
         case EVENT_PUMP:
         case EVENT_CAPTURE:
             break;
@@ -594,8 +594,8 @@ static apr_status_t cleanup_event(void *dummy)
     }
     case EVENT_LISTEN:
         break;
-    case EVENT_REQUEST: {
-        event_t *pump = event->request.pump;
+    case EVENT_CONN: {
+        event_t *pump = event->conn.pump;
         if (pump) {
             apr_bucket *b;
 
@@ -608,25 +608,25 @@ static apr_status_t cleanup_event(void *dummy)
             pump->pfd.reqevents |= APR_POLLOUT;
             apr_pollset_add(pump->cd->pollset, &pump->pfd);
 
-            pump->pump.request = NULL;
+            pump->pump.conn = NULL;
         }
         break;
     }
     case EVENT_PUMP: {
-        event_t *request = event->pump.request;
+        event_t *conn = event->pump.conn;
         event_t *capture = event->pump.capture;
-        if (request) {
+        if (conn) {
             apr_bucket *b;
 
             b = apr_bucket_eos_create(cd->alloc);
-            APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+            APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
             /* swap events from not write to write */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents |= APR_POLLOUT;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents |= APR_POLLOUT;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
-            request->request.pump = NULL;
+            conn->conn.pump = NULL;
         }
         if (capture) {
 
@@ -723,39 +723,39 @@ static apr_status_t cleanup_dumper(void *dummy)
  * The response consists of a status line, followed by a plain text
  * status message that will be returned to the client.
  */
-apr_status_t send_response(event_t *request, const char *line, const char *fmt, ...)
+apr_status_t send_response(event_t *conn, const char *line, const char *fmt, ...)
 {
     va_list ap;
     apr_status_t status = APR_SUCCESS;
 
     /* write the response line */
-    apr_brigade_puts(request->request.obb, NULL, NULL, "HTTP/1.1 ");
-    apr_brigade_puts(request->request.obb, NULL, NULL, line);
-    apr_brigade_puts(request->request.obb, NULL, NULL, CRLF);
-    if (request->request.authenticate) {
-        apr_brigade_puts(request->request.obb, NULL, NULL, "Proxy-Authenticate: ");
-        apr_brigade_puts(request->request.obb, NULL, NULL, request->request.authenticate);
-        apr_brigade_puts(request->request.obb, NULL, NULL, CRLF);
+    apr_brigade_puts(conn->conn.obb, NULL, NULL, "HTTP/1.1 ");
+    apr_brigade_puts(conn->conn.obb, NULL, NULL, line);
+    apr_brigade_puts(conn->conn.obb, NULL, NULL, CRLF);
+    if (conn->conn.authenticate) {
+        apr_brigade_puts(conn->conn.obb, NULL, NULL, "Proxy-Authenticate: ");
+        apr_brigade_puts(conn->conn.obb, NULL, NULL, conn->conn.authenticate);
+        apr_brigade_puts(conn->conn.obb, NULL, NULL, CRLF);
     }
-    apr_brigade_puts(request->request.obb, NULL, NULL, "Connection: close");
-    apr_brigade_puts(request->request.obb, NULL, NULL, CRLF CRLF);
+    apr_brigade_puts(conn->conn.obb, NULL, NULL, "Connection: close");
+    apr_brigade_puts(conn->conn.obb, NULL, NULL, CRLF CRLF);
 
-    /* write the response if any and end the stream */
+    /* write the connection if any and end the stream */
     if (fmt) {
         apr_bucket *b;
 
 //        va_start(ap, fmt);
-//        status = apr_brigade_vprintf(request->request.obb, NULL, NULL, fmt, ap);
+//        status = apr_brigade_vprintf(conn->conn.obb, NULL, NULL, fmt, ap);
 //        va_end(ap);
 
-        b = apr_bucket_eos_create(request->cd->alloc);
-        APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+        b = apr_bucket_eos_create(conn->cd->alloc);
+        APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
     }
 
     /* swap events from read to write */
-    apr_pollset_remove(request->cd->pollset, &request->pfd);
-    request->pfd.reqevents |= APR_POLLOUT;
-    apr_pollset_add(request->cd->pollset, &request->pfd);
+    apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+    conn->pfd.reqevents |= APR_POLLOUT;
+    apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
     return status;
 }
@@ -765,7 +765,7 @@ apr_status_t do_accept(connectdump_t* cd, event_t *event)
     apr_pool_t *pool;
     apr_sockaddr_t *sa;
     apr_socket_t *sd;
-    event_t *request;
+    event_t *conn;
     apr_bucket_brigade *ibb, *obb, *bb;
     apr_bucket *b;
 
@@ -794,45 +794,45 @@ apr_status_t do_accept(connectdump_t* cd, event_t *event)
     obb = apr_brigade_create(pool, cd->alloc);
     bb = apr_brigade_create(pool, cd->alloc);
 
-    request = apr_pcalloc(pool, sizeof(event_t));
-    request->cd = cd;
-    request->pool = pool;
-    request->pfd.p = pool;
-    request->pfd.desc_type = APR_POLL_SOCKET;
-    request->pfd.desc.s = sd;
-    request->pfd.reqevents = APR_POLLIN;
-    request->pfd.client_data = request;
-    request->number = cd->numbers++;
-    request->type = EVENT_REQUEST;
-    request->request.sa = sa;
-    request->request.sd = sd;
-    request->request.ibb = ibb;
-    request->request.obb = obb;
-    request->request.bb = bb;
+    conn = apr_pcalloc(pool, sizeof(event_t));
+    conn->cd = cd;
+    conn->pool = pool;
+    conn->pfd.p = pool;
+    conn->pfd.desc_type = APR_POLL_SOCKET;
+    conn->pfd.desc.s = sd;
+    conn->pfd.reqevents = APR_POLLIN;
+    conn->pfd.client_data = conn;
+    conn->number = cd->numbers++;
+    conn->type = EVENT_CONN;
+    conn->conn.sa = sa;
+    conn->conn.sd = sd;
+    conn->conn.ibb = ibb;
+    conn->conn.obb = obb;
+    conn->conn.bb = bb;
 
     /* until further notice */
-    request->request.not_authenticated = "Authorization is required\n";
+    conn->conn.not_authenticated = "Authorization is required\n";
 
-    apr_pool_cleanup_register(pool, request, cleanup_event,
+    apr_pool_cleanup_register(pool, conn, cleanup_event,
             apr_pool_cleanup_null);
 
     b = apr_bucket_socket_create(sd, cd->alloc);
 
     APR_BRIGADE_INSERT_HEAD(ibb, b);
 
-    request->timestamp = now;
-    request->when = now + apr_time_from_sec(DEFAULT_REQUEST_TIMEOUT);
-    event_add(cd->events, request);
+    conn->timestamp = now;
+    conn->when = now + apr_time_from_sec(DEFAULT_CONN_TIMEOUT);
+    event_add(cd->events, conn);
 
-    apr_pollset_add(cd->pollset, &request->pfd);
+    apr_pollset_add(cd->pollset, &conn->pfd);
 
     apr_file_printf(cd->err, "connectdump[%d]: accepted connection from %pI\n",
-            request->number, sa);
+            conn->number, sa);
 
     return APR_SUCCESS;
 }
 
-apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
+apr_status_t do_capture(connectdump_t* cd, event_t *conn, event_t *pump)
 {
     apr_pool_t *pool;
     event_t *capture;
@@ -868,13 +868,13 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     if (rc == -1) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_init failed for '%s:%hu': %s\n",
-                request->number,
-                request->request.host,
-                request->request.port, errbuf);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, errbuf);
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_init failed for '%s', rejecting request: %s\n",
-                request->request.host, errbuf);
+                conn->conn.host, errbuf);
 
         apr_pool_destroy(pool);
 
@@ -885,13 +885,13 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
         if (pcap_findalldevs(&devs, errbuf)) {
             apr_file_printf(cd->err,
                     "connectdump[%d]: pcap_findalldevs failed for '%s:%hu': %s\n",
-                    request->number,
-                    request->request.host,
-                    request->request.port, errbuf);
+                    conn->number,
+                    conn->conn.host,
+                    conn->conn.port, errbuf);
 
-            send_response(request, "500 Internal Server Error",
+            send_response(conn, "500 Internal Server Error",
                     "pcap_findalldevs failed for '%s', rejecting request: %s\n",
-                    request->request.host, errbuf);
+                    conn->conn.host, errbuf);
 
             apr_pool_destroy(pool);
 
@@ -904,9 +904,9 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
 
             apr_file_printf(cd->err,
                     "connectdump[%d]: pcap_findalldevs returned for '%s:%hu': %s\n",
-                    request->number,
-                    request->request.host,
-                    request->request.port, dev->name);
+                    conn->number,
+                    conn->conn.host,
+                    conn->conn.port, dev->name);
 
             for (address = dev->addresses; address; address = address->next) {
 
@@ -943,24 +943,24 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
         if (name) {
             apr_file_printf(cd->err,
                     "connectdump[%d]: pcap_findalldevs found interface %s for '%s:%hu'\n",
-                    request->number,
+                    conn->number,
                     name,
-                    request->request.host,
-                    request->request.port);
+                    conn->conn.host,
+                    conn->conn.port);
         }
         else {
             apr_file_printf(cd->err,
                     "connectdump[%d]: pcap_findalldevs found no interface matching %pI for '%s:%hu'\n",
-                    request->number,
+                    conn->number,
                     pump->pump.lsa,
-                    request->request.host,
-                    request->request.port);
+                    conn->conn.host,
+                    conn->conn.port);
 
-            send_response(request, "500 Internal Server Error",
+            send_response(conn, "500 Internal Server Error",
                     "pcap_findalldevs found no interface matching %pI for '%s:%hu'\n",
                     pump->pump.lsa,
-                    request->request.host,
-                    request->request.port);
+                    conn->conn.host,
+                    conn->conn.port);
 
             apr_pool_destroy(pool);
 
@@ -974,13 +974,13 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     if (!pcap) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_create failed for '%s:%hu': %s\n",
-                request->number,
-                request->request.host,
-                request->request.port, errbuf);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, errbuf);
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_create failed for '%s', rejecting request: %s\n",
-                request->request.host, errbuf);
+                conn->conn.host, errbuf);
 
         apr_pool_destroy(pool);
 
@@ -998,13 +998,13 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
         /* errors */
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_activate failed for '%s:%hu': %s\n",
-                request->number,
-                request->request.host,
-                request->request.port, pcap_statustostr(rc));
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, pcap_statustostr(rc));
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_activate failed for '%s', rejecting request: %s\n",
-                request->request.host, pcap_statustostr(rc));
+                conn->conn.host, pcap_statustostr(rc));
 
         apr_pool_destroy(pool);
 
@@ -1014,22 +1014,22 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
         /* warnings */
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_activate warning for '%s:%hu': %s\n",
-                request->number,
-                request->request.host,
-                request->request.port, pcap_statustostr(rc));
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, pcap_statustostr(rc));
     }
 
     rc = pcap_setnonblock(pcap, 1, errbuf);
     if (rc) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_setnonblock failed for '%s:%hu': %s\n",
-                request->number,
-                request->request.host,
-                request->request.port, errbuf);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, errbuf);
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_setnonblock failed for '%s', rejecting request: %s\n",
-                request->request.host, errbuf);
+                conn->conn.host, errbuf);
 
         apr_pool_destroy(pool);
 
@@ -1050,15 +1050,15 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     if (rc) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_compile of '%s' failed for '%s:%hu': %s\n",
-                request->number,
+                conn->number,
                 buf,
-                request->request.host,
-                request->request.port, pcap_geterr(pcap));
+                conn->conn.host,
+                conn->conn.port, pcap_geterr(pcap));
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_compile of '%s' failed for '%s', rejecting request: %s\n",
                 buf,
-                request->request.host, pcap_geterr(pcap));
+                conn->conn.host, pcap_geterr(pcap));
 
         apr_pool_destroy(pool);
 
@@ -1070,13 +1070,13 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     if (rc) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_setfilter failed for '%s:%hu': %s\n",
-                request->number,
-                request->request.host,
-                request->request.port, pcap_geterr(pcap));
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, pcap_geterr(pcap));
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_setfilter failed for '%s', rejecting request: %s\n",
-                request->request.host, pcap_geterr(pcap));
+                conn->conn.host, pcap_geterr(pcap));
 
         apr_pool_destroy(pool);
 
@@ -1087,15 +1087,15 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     if (fd == -1) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_get_selectable_fd failed while capturing '%s' for '%s:%hu'\n",
-                request->number,
+                conn->number,
                 name,
-                request->request.host,
-                request->request.port);
+                conn->conn.host,
+                conn->conn.port);
 
-        send_response(request, "500 Internal Server Error",
-                "pcap_get_selectable_fd failed while capturing '%s' for '%s', rejecting request\n",
+        send_response(conn, "500 Internal Server Error",
+                "pcap_get_selectable_fd failed while capturing '%s' for '%s', rejecting conn\n",
                 name,
-                request->request.host);
+                conn->conn.host);
 
         apr_pool_destroy(pool);
 
@@ -1110,21 +1110,21 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
      * For now, it's the number, the host, port, and pcap.
      */
     wname = apr_psprintf(pool, "%d-%s-%d.pcap",
-                request->number, request->request.host,
-                request->request.port);
+                conn->number, conn->conn.host,
+                conn->conn.port);
 
     dumper = pcap_dump_open(pcap, wname);
     if (!dumper) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: pcap_dump_open failed opening '%s' for '%s:%hu': %s\n",
-                request->number,
+                conn->number,
                 wname,
-                request->request.host,
-                request->request.port, pcap_geterr(pcap));
+                conn->conn.host,
+                conn->conn.port, pcap_geterr(pcap));
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "pcap_dump_open failed for '%s', rejecting request: %s\n",
-                request->request.host, pcap_geterr(pcap));
+                conn->conn.host, pcap_geterr(pcap));
 
         apr_pool_destroy(pool);
 
@@ -1140,8 +1140,8 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
      * For now, it's the number, the host, port, and eml.
      */
     ename = apr_psprintf(pool, "%d-%s-%d.eml",
-                request->number, request->request.host,
-                request->request.port);
+                conn->number, conn->conn.host,
+                conn->conn.port);
 
     status = apr_file_open(&eml, ename,
             APR_FOPEN_WRITE | APR_FOPEN_CREATE | APR_FOPEN_TRUNCATE,
@@ -1149,15 +1149,15 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     if (APR_SUCCESS != status) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: file create of '%s' failed for '%s:%hu': %pm\n",
-                request->number,
+                conn->number,
                 ename,
-                request->request.host,
-                request->request.port, &status);
+                conn->conn.host,
+                conn->conn.port, &status);
 
-        send_response(request, "500 Internal Server Error",
+        send_response(conn, "500 Internal Server Error",
                 "file create of '%s' failed for '%s', rejecting request: %pm\n",
                 ename,
-                request->request.host, &status);
+                conn->conn.host, &status);
 
         apr_pool_destroy(pool);
 
@@ -1185,7 +1185,7 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
     /* wait for capture to be ready to read */
     capture->pfd.reqevents = APR_POLLIN;
     capture->pfd.client_data = capture;
-    capture->number = request->number;
+    capture->number = conn->number;
     capture->type = EVENT_CAPTURE;
 //    capture->capture.lsa = lsa;
 //    capture->capture.psa = psa;
@@ -1206,12 +1206,12 @@ apr_status_t do_capture(connectdump_t* cd, event_t *request, event_t *pump)
             apr_pool_cleanup_null);
 
     apr_file_printf(cd->err, "connectdump[%d]: capture '%s' started with filter: %s\n",
-            pump->number, request->request.host, buf);
+            pump->number, conn->conn.host, buf);
 
     return APR_SUCCESS;
 }
 
-apr_status_t do_connect(connectdump_t* cd, event_t *request)
+apr_status_t do_connect(connectdump_t* cd, event_t *conn)
 {
     apr_pool_t *pool;
     apr_sockaddr_t *psa, *lsa;
@@ -1229,18 +1229,18 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
 
     /* look up the socket to the other side */
 
-    status = apr_sockaddr_info_get(&psa, request->request.host, cd->family,
-            request->request.port, cd->flags, pool);
+    status = apr_sockaddr_info_get(&psa, conn->conn.host, cd->family,
+            conn->conn.port, cd->flags, pool);
     if (APR_SUCCESS != status) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: sockaddr setup failed for '%s:%hu': %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "sockaddr failed for '%s', rejecting request: %pm\n",
-                request->request.host, &status);
+                conn->conn.host, &status);
 
         apr_pool_destroy(pool);
 
@@ -1268,16 +1268,16 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
         if (APR_SUCCESS != status) {
             apr_file_printf(cd->err,
                     "connectdump[%d]: source IPv4 '%s' setup failed for '%s:%hu': %pm\n",
-                    request->number,
+                    conn->number,
                     cd->laddr4,
-                    request->request.host,
-                    request->request.port, &status);
+                    conn->conn.host,
+                    conn->conn.port, &status);
 
-            send_response(request, "502 Bad Gateway",
+            send_response(conn, "502 Bad Gateway",
                     "source IPv4 '%s' setup failed for '%s:%hu': %pm\n",
                     cd->laddr4,
-                    request->request.host,
-                    request->request.port, &status);
+                    conn->conn.host,
+                    conn->conn.port, &status);
 
             apr_pool_destroy(pool);
 
@@ -1293,16 +1293,16 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
         if (APR_SUCCESS != status) {
             apr_file_printf(cd->err,
                     "connectdump[%d]: source IPv6 '%s' setup failed for '%s:%hu': %pm\n",
-                    request->number,
+                    conn->number,
                     cd->laddr6,
-                    request->request.host,
-                    request->request.port, &status);
+                    conn->conn.host,
+                    conn->conn.port, &status);
 
-            send_response(request, "502 Bad Gateway",
+            send_response(conn, "502 Bad Gateway",
                     "source IPv6 '%s' setup failed for '%s:%hu': %pm\n",
                     cd->laddr6,
-                    request->request.host,
-                    request->request.port, &status);
+                    conn->conn.host,
+                    conn->conn.port, &status);
 
             apr_pool_destroy(pool);
 
@@ -1315,12 +1315,12 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
 
         apr_file_printf(cd->err,
                 "connectdump[%d]: sockaddr family not IPv4 or IPv6 for '%s:%hu'\n",
-                request->number, request->request.host,
-                request->request.port);
+                conn->number, conn->conn.host,
+                conn->conn.port);
 
-        send_response(request, "502 Bad Gateway",
-                "sockaddr family not IPv4 or IPv6 for '%s', rejecting request\n",
-                request->request.host);
+        send_response(conn, "502 Bad Gateway",
+                "sockaddr family not IPv4 or IPv6 for '%s', rejecting conn\n",
+                conn->conn.host);
 
         apr_pool_destroy(pool);
 
@@ -1333,13 +1333,13 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: socket create failed for '%s:%hu' (%pI): %pm\n",
-                request->number, request->request.host,
-                request->request.port, psa, &status);
+                conn->number, conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "socket create failed for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1350,14 +1350,14 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS && status != APR_ENOTIMPL) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: send buffer size cannot be set for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "socket create failed for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1368,14 +1368,14 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS && status != APR_ENOTIMPL) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: receive buffer size cannot be set for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "socket create failed for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1386,14 +1386,14 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS && status != APR_ENOTIMPL) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: nagle cannot be disabled for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "socket create failed for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1404,14 +1404,14 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS && status != APR_ENOTIMPL) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: non block cannot be set for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "non block cannot be set for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1423,14 +1423,14 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS && status != APR_ENOTIMPL) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: ipv6only cannot be set for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "ipv6only cannot be set for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1442,16 +1442,16 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_SUCCESS) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: socket bind to %pI failed for '%s:%hu' (%pI): %pm\n",
-                request->number,
+                conn->number,
                 lsa,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "connectdump: socket bind to %pI failed for '%s:%hu' (%pI): %pm\n",
                 lsa,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1464,14 +1464,14 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (APR_SUCCESS != status) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: get sockaddr failed for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "connectdump: get sockaddr failed for '%s:%hu' (%pI): %pm\n",
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1490,19 +1490,19 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     /* wait for pump to be ready to write */
     pump->pfd.reqevents = APR_POLLOUT;
     pump->pfd.client_data = pump;
-    pump->number = request->number;
+    pump->number = conn->number;
     pump->type = EVENT_PUMP;
     pump->pump.lsa = lsa;
     pump->pump.psa = psa;
     pump->pump.sd = sd;
-    pump->pump.host = apr_pstrdup(pool, request->request.host);
-    pump->pump.scope_id = apr_pstrdup(pool, request->request.scope_id);
-    pump->pump.port = request->request.port;
+    pump->pump.host = apr_pstrdup(pool, conn->conn.host);
+    pump->pump.scope_id = apr_pstrdup(pool, conn->conn.scope_id);
+    pump->pump.port = conn->conn.port;
     pump->pump.ibb = ibb;
     pump->pump.obb = obb;
 
-    pump->pump.request = request;
-    request->request.pump = pump;
+    pump->pump.conn = conn;
+    conn->conn.pump = pump;
 
     b = apr_bucket_socket_create(sd, cd->alloc);
 
@@ -1523,7 +1523,7 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     apr_pool_cleanup_register(pool, pump, cleanup_event,
             apr_pool_cleanup_null);
 
-    /* To bootstrap the pump/request pair, we set to start
+    /* To bootstrap the pump/conn pair, we set to start
      * by waiting for both sides to be ready to write.
      *
      * As soon as a side is ready to write, the write
@@ -1535,9 +1535,9 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
      */
 
     /* wait for request to be ready to write */
-    apr_pollset_remove(request->cd->pollset, &request->pfd);
-    request->pfd.reqevents = APR_POLLOUT;
-    apr_pollset_add(request->cd->pollset, &request->pfd);
+    apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+    conn->pfd.reqevents = APR_POLLOUT;
+    apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
     /*
      * At this point we know the source IP and port, and the
@@ -1545,7 +1545,7 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
      * the connect generates the first traffic.
      */
 #if 1
-    status = do_capture(cd, request, pump);
+    status = do_capture(cd, conn, pump);
     if (status != APR_SUCCESS) {
         /* error is already handled */
 
@@ -1558,15 +1558,15 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     if (status != APR_EINPROGRESS) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: socket connect failed for '%s:%hu' (%pI): %pm\n",
-                request->number,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->number,
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
-        send_response(request, "502 Bad Gateway",
+        send_response(conn, "502 Bad Gateway",
                 "connectdump: socket bind to %pI failed for '%s:%hu' (%pI): %pm\n",
                 lsa,
-                request->request.host,
-                request->request.port, psa, &status);
+                conn->conn.host,
+                conn->conn.port, psa, &status);
 
         apr_pool_destroy(pool);
 
@@ -1576,21 +1576,21 @@ apr_status_t do_connect(connectdump_t* cd, event_t *request)
     /* phew, so many steps, time to shift some data */
 
     apr_file_printf(cd->err, "connectdump[%d]: '%s' connecting to %pI from %pI\n",
-            pump->number, request->request.host, psa, lsa);
+            pump->number, conn->conn.host, psa, lsa);
 
-    send_response(request, "200 Let's Gooooooo", NULL);
+    send_response(conn, "200 Let's Gooooooo", NULL);
 
     return APR_SUCCESS;
 }
 
-apr_status_t do_authenticate(connectdump_t* cd, event_t *request)
+apr_status_t do_authenticate(connectdump_t* cd, event_t *conn)
 {
-    char *nonce = apr_palloc(request->pool, NONCE_LEN+1);
+    char *nonce = apr_palloc(conn->pool, NONCE_LEN+1);
     time_rec t;
     unsigned char digest[SHA256_DIGEST_LENGTH];
     EVP_MD_CTX *mdctx;
 
-    t.time = request->timestamp;
+    t.time = conn->timestamp;
 
     apr_base64_encode_binary(nonce, t.arr, sizeof(t.arr));
 
@@ -1603,7 +1603,7 @@ apr_status_t do_authenticate(connectdump_t* cd, event_t *request)
 
     apr_encode_base16_binary(nonce+NONCE_TIME_LEN, digest, sizeof(digest), APR_ENCODE_NONE, NULL);
 
-    request->request.authenticate = apr_psprintf(request->pool, "Digest "
+    conn->conn.authenticate = apr_psprintf(conn->pool, "Digest "
             "realm=\"%s\","
             "qop=\"auth\","
             "algorithm=SHA-256,"
@@ -1613,12 +1613,12 @@ apr_status_t do_authenticate(connectdump_t* cd, event_t *request)
 
     apr_file_printf(cd->err,
             "connectdump[%d]: authenticate: %s\n",
-            request->number, request->request.authenticate);
+            conn->number, conn->conn.authenticate);
 
     return APR_SUCCESS;
 }
 
-apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
+apr_status_t do_request_header(connectdump_t* cd, event_t *conn, char *buf)
 {
     char *tok_state;
 
@@ -1700,9 +1700,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!username) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: username is missing, auth denied\n",
-                request->number, request->request.sa);
+                conn->number, conn->conn.sa);
 
-        request->request.not_authenticated = "Username is missing\n";
+        conn->conn.not_authenticated = "Username is missing\n";
         return APR_SUCCESS;
     }
 
@@ -1710,19 +1710,19 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!realm || strcmp(cd->realm, realm)) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: realm '%s' does not match '%s', auth denied\n",
-                request->number, request->request.sa, realm, cd->realm);
+                conn->number, conn->conn.sa, realm, cd->realm);
 
-        request->request.not_authenticated = "Realm does not match\n";
+        conn->conn.not_authenticated = "Realm does not match\n";
         return APR_SUCCESS;
     }
 
     /* uri must match address */
-    if (!uri || strcmp(request->request.address, uri)) {
+    if (!uri || strcmp(conn->conn.address, uri)) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: uri '%s' does not match '%s', auth denied\n",
-                request->number, request->request.sa, uri, request->request.address);
+                conn->number, conn->conn.sa, uri, conn->conn.address);
 
-        request->request.not_authenticated = "URI does not match\n";
+        conn->conn.not_authenticated = "URI does not match\n";
         return APR_SUCCESS;
     }
 
@@ -1730,9 +1730,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!algorithm || strcmp("SHA-256", algorithm)) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: algorithm '%s' does not match 'SHA-256', auth denied\n",
-                request->number, request->request.sa, algorithm);
+                conn->number, conn->conn.sa, algorithm);
 
-        request->request.not_authenticated = "Algorithm is not 'SHA-256'\n";
+        conn->conn.not_authenticated = "Algorithm is not 'SHA-256'\n";
         return APR_SUCCESS;
     }
 
@@ -1740,9 +1740,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!nonce) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: nonce is missing, auth denied\n",
-                request->number, request->request.sa);
+                conn->number, conn->conn.sa);
 
-        request->request.not_authenticated = "Nonce is missing\n";
+        conn->conn.not_authenticated = "Nonce is missing\n";
         return APR_SUCCESS;
     }
 
@@ -1752,9 +1752,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!nc) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: nc is missing, auth denied\n",
-                request->number, request->request.sa);
+                conn->number, conn->conn.sa);
 
-        request->request.not_authenticated = "Nonce count is missing\n";
+        conn->conn.not_authenticated = "Nonce count is missing\n";
         return APR_SUCCESS;
     }
 
@@ -1764,9 +1764,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!cnonce) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: cnonce is missing, auth denied\n",
-                request->number, request->request.sa);
+                conn->number, conn->conn.sa);
 
-        request->request.not_authenticated = "Client nonce is missing\n";
+        conn->conn.not_authenticated = "Client nonce is missing\n";
         return APR_SUCCESS;
     }
 
@@ -1774,9 +1774,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!qop || strcmp("auth", qop)) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: qop '%s' does not match 'auth', auth denied\n",
-                request->number, request->request.sa, qop);
+                conn->number, conn->conn.sa, qop);
 
-        request->request.not_authenticated = "QOP is not 'auth'\n";
+        conn->conn.not_authenticated = "QOP is not 'auth'\n";
         return APR_SUCCESS;
     }
 
@@ -1784,9 +1784,9 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     if (!response) {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: response is missing, auth denied\n",
-                request->number, request->request.sa);
+                conn->number, conn->conn.sa);
 
-        request->request.not_authenticated = "Response is missing\n";
+        conn->conn.not_authenticated = "Response is missing\n";
         return APR_SUCCESS;
     }
 
@@ -1795,44 +1795,44 @@ apr_status_t do_request_header(connectdump_t* cd, event_t *request, char *buf)
     /* userhash is optional, but must be well formed */
     if (!userhash) {
         /* optional value */
-        request->request.userhash = 0;
+        conn->conn.userhash = 0;
     }
     else if (!strcmp(userhash, "false")) {
-        request->request.userhash = 0;
+        conn->conn.userhash = 0;
     }
     else if (!strcmp(userhash, "true")) {
-        request->request.userhash = 1;
+        conn->conn.userhash = 1;
     }
     else {
         apr_file_printf(cd->err,
                 "connectdump[%d]: browser %pI: userhash '%s' not recognised, auth denied\n",
-                request->number, request->request.sa, userhash);
+                conn->number, conn->conn.sa, userhash);
 
-        request->request.not_authenticated = "Userhash not recognised\n";
+        conn->conn.not_authenticated = "Userhash not recognised\n";
         return APR_SUCCESS;
     }
 
     // fixme check username
 
     // fixme hard wired to accept auth
-    request->request.not_authenticated = NULL;
+    conn->conn.not_authenticated = NULL;
 
     return APR_SUCCESS;
 }
 
-apr_status_t do_request_write(connectdump_t* cd, event_t *request)
+apr_status_t do_conn_write(connectdump_t* cd, event_t *conn)
 {
     apr_bucket_brigade *obb;
     apr_bucket *b;
 
-    event_t *pump = request->request.pump;
+    event_t *pump = conn->conn.pump;
 
     const char *data;
     apr_size_t length;
 
     apr_status_t status = APR_SUCCESS;
 
-    obb = request->request.obb;
+    obb = conn->conn.obb;
 
     while (((b = APR_BRIGADE_FIRST(obb)) != APR_BRIGADE_SENTINEL(obb))) {
 
@@ -1843,20 +1843,20 @@ apr_status_t do_request_write(connectdump_t* cd, event_t *request)
              */
             apr_file_printf(cd->err,
                     "connectdump[%d]: sending shutdown to browser %pI\n",
-                    request->number, request->request.sa);
+                    conn->number, conn->conn.sa);
 
             /* swap events from write to not write */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents &= ~APR_POLLOUT;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents &= ~APR_POLLOUT;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
             /* lingering close, we will wait for other side to close */
-            apr_socket_shutdown(request->request.sd, APR_SHUTDOWN_WRITE);
+            apr_socket_shutdown(conn->conn.sd, APR_SHUTDOWN_WRITE);
 
             apr_bucket_delete(b);
 
-            /* our request is finally done, destroy the request */
-            apr_pool_destroy(request->pool);
+            /* our request is finally done, destroy the conn */
+            apr_pool_destroy(conn->pool);
 
             return APR_SUCCESS;
         }
@@ -1871,7 +1871,7 @@ apr_status_t do_request_write(connectdump_t* cd, event_t *request)
 
             apr_size_t requested = length;
 
-            status = apr_socket_send(request->request.sd, data, &length);
+            status = apr_socket_send(conn->conn.sd, data, &length);
 
             if (APR_STATUS_IS_EAGAIN(status)) {
                 /* poll again */
@@ -1881,9 +1881,9 @@ apr_status_t do_request_write(connectdump_t* cd, event_t *request)
                 /* write attempt failed, give up */
                 apr_file_printf(cd->err,
                         "connectdump[%d]: write failed to %pI, closing: %pm\n",
-                        request->number, request->request.sa, &status);
+                        conn->number, conn->conn.sa, &status);
 
-                apr_pool_destroy(request->pool);
+                apr_pool_destroy(conn->pool);
                 return status;
             }
 
@@ -1903,9 +1903,9 @@ apr_status_t do_request_write(connectdump_t* cd, event_t *request)
     if (pump) {
 
         /* swap events from write to not write */
-        apr_pollset_remove(request->cd->pollset, &request->pfd);
-        request->pfd.reqevents &= ~APR_POLLOUT;
-        apr_pollset_add(request->cd->pollset, &request->pfd);
+        apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+        conn->pfd.reqevents &= ~APR_POLLOUT;
+        apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
         /* swap events from not read to read */
         apr_pollset_remove(pump->cd->pollset, &pump->pfd);
@@ -1917,16 +1917,16 @@ apr_status_t do_request_write(connectdump_t* cd, event_t *request)
     return APR_SUCCESS;
 }
 
-apr_status_t do_request_read(connectdump_t* cd, event_t *request)
+apr_status_t do_conn_read(connectdump_t* cd, event_t *conn)
 {
     apr_bucket_brigade *ibb, *bb;
 
-    event_t *pump = request->request.pump;
+    event_t *pump = conn->conn.pump;
 
     apr_status_t status = APR_SUCCESS;
 
-    ibb = request->request.ibb;
-    bb = request->request.bb;
+    ibb = conn->conn.ibb;
+    bb = conn->conn.bb;
 
     /* are we pumping data? */
     if (pump) {
@@ -1941,9 +1941,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             /* client hung up early, tear everything down */
             apr_file_printf(cd->err,
                     "connectdump[%d]: no more to read from %pI\n",
-                    request->number, request->request.sa);
+                    conn->number, conn->conn.sa);
 
-            apr_pool_destroy(request->pool);
+            apr_pool_destroy(conn->pool);
             return status;
         }
 
@@ -1956,12 +1956,12 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             APR_BRIGADE_INSERT_TAIL(pump->pump.obb, b);
 
             apr_file_printf(cd->err, "connectdump[%d]: '%s' read %" APR_SIZE_T_FMT " bytes from %pI\n",
-                    pump->number, request->request.host, length, request->request.sa);
+                    pump->number, conn->conn.host, length, conn->conn.sa);
 
             /* swap events from read to not read */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents &= ~APR_POLLIN;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents &= ~APR_POLLIN;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
             /* swap events from not write to write */
             apr_pollset_remove(pump->cd->pollset, &pump->pfd);
@@ -1979,9 +1979,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             /* client hung up early, tear everything down */
             apr_file_printf(cd->err,
                     "connectdump[%d]: connection closed unexpectedly from %pI\n",
-                    request->number, request->request.sa);
+                    conn->number, conn->conn.sa);
 
-            apr_pool_destroy(request->pool);
+            apr_pool_destroy(conn->pool);
             return status;
         }
         else {
@@ -1989,15 +1989,15 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             /* read failed, tear everything down */
             apr_file_printf(cd->err,
                     "connectdump[%d]: error reading from %pI: %pm\n",
-                    request->number, request->request.sa, &status);
+                    conn->number, conn->conn.sa, &status);
 
-            apr_pool_destroy(request->pool);
+            apr_pool_destroy(conn->pool);
             return status;
         }
 
     }
 
-    /* are we handling a connect request? */
+    /* are we handling a connect conn? */
     while (!pump && APR_SUCCESS == status) {
 
         status = apr_brigade_split_line(bb, ibb, APR_NONBLOCK_READ,
@@ -2022,27 +2022,27 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             apr_brigade_cleanup(bb);
 
             /* empty line and no host yet */
-            if (!size && !request->request.host) {
+            if (!size && !conn->conn.host) {
 
                 /* client hung up early, tear everything down */
                 apr_file_printf(cd->err,
                         "connectdump[%d]: connection closed unexpectedly from %pI\n",
-                        request->number, request->request.sa);
+                        conn->number, conn->conn.sa);
 
-                apr_pool_destroy(request->pool);
+                apr_pool_destroy(conn->pool);
 
                 break;
             }
 
             /* empty line and not yet authenticated */
-            else if (!size && request->request.not_authenticated) {
+            else if (!size && conn->conn.not_authenticated) {
                 apr_file_printf(cd->err,
                         "connectdump[%d]: unauthenticated request from %pI\n",
-                        request->number, request->request.sa);
+                        conn->number, conn->conn.sa);
 
-                do_authenticate(cd, request);
+                do_authenticate(cd, conn);
 
-                send_response(request, "407 Proxy Authentication Required", request->request.not_authenticated);
+                send_response(conn, "407 Proxy Authentication Required", conn->conn.not_authenticated);
 
                 break;
             }
@@ -2052,29 +2052,29 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
 
                 apr_file_printf(cd->err,
                         "connectdump[%d]: end of headers from %pI, starting pump\n",
-                        request->number, request->request.sa);
+                        conn->number, conn->conn.sa);
 
 #if 1
-                do_connect(cd, request);
+                do_connect(cd, conn);
 #endif
 
                 break;
             }
 
-            /* line is too long - reject the request */
+            /* line is too long - reject the conn */
             else if (size >= HUGE_STRING_LEN) {
 
                 apr_file_printf(cd->err,
                         "connectdump[%d]: line too long from %pI\n",
-                        request->number, request->request.sa);
+                        conn->number, conn->conn.sa);
 
-                send_response(request, "414 URI Too Long", "Request line is too long, rejecting request.\n");
+                send_response(conn, "414 URI Too Long", "Request line is too long, rejecting conn.\n");
 
                 break;
             }
 
             /* not too long, not too short, just right */
-            else if (!request->request.host) {
+            else if (!conn->conn.host) {
 
                 char *tok_state;
 
@@ -2085,9 +2085,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
                 if (!version) {
                     apr_file_printf(cd->err,
                             "connectdump[%d]: version not specified from %pI\n",
-                            request->number, request->request.sa);
+                            conn->number, conn->conn.sa);
 
-                    send_response(request, "400 Bad Request", "Request line did not carry a version, rejecting request.\n");
+                    send_response(conn, "400 Bad Request", "Request line did not carry a version, rejecting conn.\n");
 
                     break;
                 }
@@ -2095,9 +2095,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
                 else if (!address) {
                     apr_file_printf(cd->err,
                             "connectdump[%d]: address not specified from %pI\n",
-                            request->number, request->request.sa);
+                            conn->number, conn->conn.sa);
 
-                    send_response(request, "400 Bad Request", "Request line did not carry an address, rejecting request.\n");
+                    send_response(conn, "400 Bad Request", "Request line did not carry an address, rejecting conn.\n");
 
                     break;
                 }
@@ -2105,42 +2105,42 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
                 else if (strcmp(method, "CONNECT")) {
                     apr_file_printf(cd->err,
                             "connectdump[%d]: method %s not allowed from %pI\n",
-                            request->number, method, request->request.sa);
+                            conn->number, method, conn->conn.sa);
 
-                    send_response(request, "405 Method Not Allowed", "This proxy supports the CONNECT method only, rejecting request.\n");
+                    send_response(conn, "405 Method Not Allowed", "This proxy supports the CONNECT method only, rejecting conn.\n");
 
                     break;
                 }
 
-                request->request.address = apr_pstrdup(request->pool, address);
+                conn->conn.address = apr_pstrdup(conn->pool, address);
 
                 /* request line */
-                status = apr_parse_addr_port(&request->request.host,
-                        &request->request.scope_id, &request->request.port,
-                        address, request->pool);
+                status = apr_parse_addr_port(&conn->conn.host,
+                        &conn->conn.scope_id, &conn->conn.port,
+                        address, conn->pool);
                 if (status != APR_SUCCESS) {
                     apr_file_printf(cd->err,
                             "connectdump[%d]: cannot parse '%s' from %pI: %pm\n",
-                            request->number, address, request->request.sa, &status);
+                            conn->number, address, conn->conn.sa, &status);
 
-                    send_response(request, "400 Bad Request", "Address '%s' could not be parsed, rejecting request.\n", address);
+                    send_response(conn, "400 Bad Request", "Address '%s' could not be parsed, rejecting conn.\n", address);
 
                     break;
                 }
 
-                if (!request->request.port) {
+                if (!conn->conn.port) {
                     apr_file_printf(cd->err,
                             "connectdump[%d]: port not specified from %pI\n",
-                            request->number, request->request.sa);
+                            conn->number, conn->conn.sa);
 
-                    send_response(request, "400 Bad Request", "Address '%s' requires a port be specified explicitly, rejecting request.\n", address);
+                    send_response(conn, "400 Bad Request", "Address '%s' requires a port be specified explicitly, rejecting conn.\n", address);
 
                     break;
                 }
 
                 apr_file_printf(cd->err,
                         "connectdump[%d]: '%s' to '%s' received from %pI\n",
-                        request->number, method, address, request->request.sa);
+                        conn->number, method, address, conn->conn.sa);
 
             }
             else {
@@ -2148,9 +2148,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
 
                 apr_file_printf(cd->err,
                         "connectdump[%d]: header line '%s' received from %pI\n",
-                        request->number, buf, request->request.sa);
+                        conn->number, buf, conn->conn.sa);
 
-                status = do_request_header(cd, request, buf);
+                status = do_request_header(cd, conn, buf);
                 if (APR_SUCCESS != status) {
 
                     /* error is already handled */
@@ -2168,9 +2168,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             /* client hung up early, tear everything down */
             apr_file_printf(cd->err,
                     "connectdump[%d]: connection closed unexpectedly from %pI\n",
-                    request->number, request->request.sa);
+                    conn->number, conn->conn.sa);
 
-            apr_pool_destroy(request->pool);
+            apr_pool_destroy(conn->pool);
             break;
         }
         else {
@@ -2178,9 +2178,9 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
             /* read failed, tear everything down */
             apr_file_printf(cd->err,
                     "connectdump[%d]: error reading from %pI: %pm\n",
-                    request->number, request->request.sa, &status);
+                    conn->number, conn->conn.sa, &status);
 
-            apr_pool_destroy(request->pool);
+            apr_pool_destroy(conn->pool);
             break;
         }
 
@@ -2189,13 +2189,13 @@ apr_status_t do_request_read(connectdump_t* cd, event_t *request)
     return status;
 }
 
-apr_status_t do_request_hangup(connectdump_t* cd, event_t *request)
+apr_status_t do_conn_hangup(connectdump_t* cd, event_t *conn)
 {
-    event_t *pump = request->request.pump;
+    event_t *pump = conn->conn.pump;
 
     apr_bucket *b;
 
-    apr_socket_shutdown(request->request.sd, APR_SHUTDOWN_READ);
+    apr_socket_shutdown(conn->conn.sd, APR_SHUTDOWN_READ);
 
     /* are we pumping data? */
     if (pump) {
@@ -2213,9 +2213,9 @@ apr_status_t do_request_hangup(connectdump_t* cd, event_t *request)
     /* client hung up early, tear everything down */
     apr_file_printf(cd->err,
             "connectdump[%d]: browser %pI closed connection\n",
-            request->number, request->request.sa);
+            conn->number, conn->conn.sa);
 
-    apr_pool_destroy(request->pool);
+    apr_pool_destroy(conn->pool);
 
     return APR_SUCCESS;
 }
@@ -2225,7 +2225,7 @@ apr_status_t do_pump_write(connectdump_t* cd, event_t *pump)
     apr_bucket_brigade *obb;
     apr_bucket *b;
 
-    event_t *request = pump->pump.request;
+    event_t *conn = pump->pump.conn;
 
     const char *data;
     apr_size_t length;
@@ -2281,12 +2281,12 @@ apr_status_t do_pump_write(connectdump_t* cd, event_t *pump)
                         pump->number, pump->pump.psa, length, &status);
 
                 b = apr_bucket_eos_create(cd->alloc);
-                APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+                APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
                 /* swap events from not write to write */
-                apr_pollset_remove(request->cd->pollset, &request->pfd);
-                request->pfd.reqevents |= APR_POLLOUT;
-                apr_pollset_add(request->cd->pollset, &request->pfd);
+                apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+                conn->pfd.reqevents |= APR_POLLOUT;
+                apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
                 apr_bucket_delete(b);
 
@@ -2314,7 +2314,7 @@ apr_status_t do_pump_write(connectdump_t* cd, event_t *pump)
      * write off and read on, let's go fetch some more data.
      */
 
-    if (request) {
+    if (conn) {
 
         /* swap events from write to not write */
         apr_pollset_remove(pump->cd->pollset, &pump->pfd);
@@ -2322,9 +2322,9 @@ apr_status_t do_pump_write(connectdump_t* cd, event_t *pump)
         apr_pollset_add(pump->cd->pollset, &pump->pfd);
 
         /* swap events from not read to read */
-        apr_pollset_remove(request->cd->pollset, &request->pfd);
-        request->pfd.reqevents |= APR_POLLIN;
-        apr_pollset_add(request->cd->pollset, &request->pfd);
+        apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+        conn->pfd.reqevents |= APR_POLLIN;
+        apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
     }
 
@@ -2335,14 +2335,14 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
 {
     apr_bucket_brigade *ibb;
 
-    event_t *request = pump->pump.request;
+    event_t *conn = pump->pump.conn;
 
     apr_status_t status = APR_SUCCESS;
 
     ibb = pump->pump.ibb;
 
     /* are we pumping data? */
-    if (request) {
+    if (conn) {
 
         apr_bucket *b;
         const char *data;
@@ -2357,12 +2357,12 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
                     pump->number, pump->pump.psa);
 
             b = apr_bucket_eos_create(cd->alloc);
-            APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+            APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
             /* swap events from not write to write */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents |= APR_POLLOUT;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents |= APR_POLLOUT;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
             apr_pool_destroy(pump->pool);
 
@@ -2375,7 +2375,7 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
         if (APR_SUCCESS == status) {
             /* pass across to the pump */
             APR_BUCKET_REMOVE(b);
-            APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+            APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
             /* swap events from read to not read */
             apr_pollset_remove(pump->cd->pollset, &pump->pfd);
@@ -2383,9 +2383,9 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
             apr_pollset_add(pump->cd->pollset, &pump->pfd);
 
             /* swap events from not write to write */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents |= APR_POLLOUT;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents |= APR_POLLOUT;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
             apr_file_printf(cd->err, "connectdump[%d]: '%s' read %" APR_SIZE_T_FMT " bytes from origin %pI\n",
                     pump->number, pump->pump.host, length, pump->pump.psa);
@@ -2404,12 +2404,12 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
                     pump->number, pump->pump.psa);
 
             b = apr_bucket_eos_create(cd->alloc);
-            APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+            APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
             /* swap events from not write to write */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents |= APR_POLLOUT;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents |= APR_POLLOUT;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
             apr_pool_destroy(pump->pool);
 
@@ -2423,12 +2423,12 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
                     pump->number, pump->pump.psa, &status);
 
             b = apr_bucket_eos_create(cd->alloc);
-            APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+            APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
             /* swap events from not write to write */
-            apr_pollset_remove(request->cd->pollset, &request->pfd);
-            request->pfd.reqevents |= APR_POLLOUT;
-            apr_pollset_add(request->cd->pollset, &request->pfd);
+            apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+            conn->pfd.reqevents |= APR_POLLOUT;
+            apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
             apr_pool_destroy(pump->pool);
 
@@ -2442,22 +2442,22 @@ apr_status_t do_pump_read(connectdump_t* cd, event_t *pump)
 
 apr_status_t do_pump_hangup(connectdump_t* cd, event_t *pump)
 {
-    event_t *request = pump->pump.request;
+    event_t *conn = pump->pump.conn;
 
     apr_bucket *b;
 
     apr_socket_shutdown(pump->pump.sd, APR_SHUTDOWN_READ);
 
     /* is our request still alive? */
-    if (request) {
+    if (conn) {
 
         b = apr_bucket_eos_create(cd->alloc);
-        APR_BRIGADE_INSERT_TAIL(request->request.obb, b);
+        APR_BRIGADE_INSERT_TAIL(conn->conn.obb, b);
 
         /* swap events from not write to write */
-        apr_pollset_remove(request->cd->pollset, &request->pfd);
-        request->pfd.reqevents |= APR_POLLOUT;
-        apr_pollset_add(request->cd->pollset, &request->pfd);
+        apr_pollset_remove(conn->cd->pollset, &conn->pfd);
+        conn->pfd.reqevents |= APR_POLLOUT;
+        apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
     }
 
@@ -2558,7 +2558,7 @@ int do_poll(connectdump_t* cd)
 
                 break;
             }
-            case EVENT_REQUEST: {
+            case EVENT_CONN: {
 
                 apr_file_printf(cd->err, "R%d(%pp) ",
                         event->number, event);
@@ -2605,11 +2605,11 @@ int do_poll(connectdump_t* cd)
 
                     break;
                 }
-                case EVENT_REQUEST: {
+                case EVENT_CONN: {
 
                     apr_file_printf(cd->err,
                             "connectdump[%d]: browser %pI timed out\n",
-                            event->number, event->request.sa);
+                            event->number, event->conn.sa);
 
                     apr_pool_destroy(event->pool);
 
@@ -2679,25 +2679,25 @@ int do_poll(connectdump_t* cd)
 
                     break;
                 }
-                case EVENT_REQUEST: {
+                case EVENT_CONN: {
 
                     /* refresh the timeout */
-                    event->when = now + apr_time_from_sec(DEFAULT_REQUEST_TIMEOUT);
+                    event->when = now + apr_time_from_sec(DEFAULT_CONN_TIMEOUT);
 
                     event_reindex(cd->events);
 
                     if (pollfd->rtnevents & (APR_POLLHUP)) {
-                        do_request_hangup(cd, event);
+                        do_conn_hangup(cd, event);
                         continue;
                     }
 
                     if (pollfd->rtnevents & (APR_POLLOUT)) {
-                        do_request_write(cd, event);
+                        do_conn_write(cd, event);
                         continue;
                     }
 
                     if (pollfd->rtnevents & (APR_POLLIN)) {
-                        do_request_read(cd, event);
+                        do_conn_read(cd, event);
                         continue;
                     }
 
