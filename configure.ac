@@ -18,11 +18,12 @@ AC_SUBST([libexecdir], [$libexecdir])
 PKG_CHECK_MODULES(apr, apr-1 >= 1.3)
 PKG_CHECK_MODULES(apu, apr-util-1 >= 1.3)
 PKG_CHECK_MODULES(pcap, libpcap >= 1)
+PKG_CHECK_MODULES(libcrypto, libcrypto >= 1.0.2)
 
-CFLAGS="$CFLAGS $apr_CFLAGS $apu_CFLAGS $pcap_CFLAGS $libselinux_CFLAGS $dbus_CFLAGS $icu_CFLAGS"
-CPPFLAGS="$CPPFLAGS $apr_CPPFLAGS $apu_CPPFLAGS $pcap_CPPFLAGS $libselinux_CPPFLAGS $dbus_CPPFLAGS $icu_CPPFLAGS"
-LDFLAGS="$LDFLAGS $apr_LDFLAGS $apu_LDFLAGS $pcap_LDFLAGS $libselinux_LDFLAGS $dbus_LDFLAGS $icu_LDFLAGS"
-LIBS="$LIBS $apr_LIBS $apu_LIBS $libedit_LIBS $pcap_LIBS $dbus_LIBS $icu_LIBS"
+CFLAGS="$CFLAGS $apr_CFLAGS $apu_CFLAGS $pcap_CFLAGS $libcrypto_CFLAGS"
+CPPFLAGS="$CPPFLAGS $apr_CPPFLAGS $apu_CPPFLAGS $pcap_CPPFLAGS $libcrypto_CPPFLAGS"
+LDFLAGS="$LDFLAGS $apr_LDFLAGS $apu_LDFLAGS $pcap_LDFLAGS $libcrypto_LDFLAGS"
+LIBS="$LIBS $apr_LIBS $apu_LIBS $libedit_LIBS $pcap_LIBS $libcrypto_LIBS"
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_HEADER_STDBOOL
