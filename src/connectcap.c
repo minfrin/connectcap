@@ -47,6 +47,7 @@
 #define DEFAULT_CAPTURE_TIMEOUT 2
 #define DEFAULT_PCAP_DEVICE "any"
 #define DEFAULT_PCAP_SNAPLEN 65536
+#define DEFAULT_DIRECTORY "."
 #define DEFAULT_PASSWD_FILE "ccpasswd"
 #define DEFAULT_REALM "connectcap"
 
@@ -101,6 +102,7 @@ typedef struct connectcap_t {
     const char *laddr6;
     const char *interface;
     const char *realm;
+    const char *directory;
     const char *passwd;
     users_t *users;
     apr_array_header_t *events;
@@ -447,6 +449,7 @@ static const apr_getopt_option_t
         "  -v, --version\t\t\tDisplay the version number." },
     { "source-ipv4", '4', 1, "  -4, --source-ipv4 ip4\t\t\tSource address for IPv4 connections. If specified before the -6 option, attempt IPv4 first." },
     { "source-ipv6", '6', 1, "  -6, --source-ipv6 ip6\t\t\tSource address for IPv6 connections. If specified before the -4 option, attempt IPv6 first." },
+    { "directory", 'd', 1, "  -d, --directory path\t\t\tPath to the directory where capture files are saved. Defaults to the current directory." },
     { "interface", 'i', 1, "  -i, --interface dev\t\t\tInterface containing the source addresses. This interface will be used to capture traffic." },
     { "passwd", 'p', 1, "  -p, --passwd path\t\t\tFile containing usernames and passwords." },
     { "realm", 'r', 1, "  -r, --realm name\t\t\tName of the realm. Defaults to " DEFAULT_REALM "." },
@@ -3651,6 +3654,7 @@ int main(int argc, const char * const argv[])
 
     cd.alloc = apr_bucket_alloc_create(cd.pool);
 
+    cd.directory = DEFAULT_DIRECTORY;
     cd.passwd = DEFAULT_PASSWD_FILE;
     cd.realm = DEFAULT_REALM;
 
@@ -3671,6 +3675,10 @@ int main(int argc, const char * const argv[])
                 cd.prefer = PREFER_IPV6;
             }
             cd.laddr6 = optarg;
+            break;
+        }
+        case 'd': {
+            cd.directory = optarg;
             break;
         }
         case 'i': {
@@ -3730,6 +3738,13 @@ int main(int argc, const char * const argv[])
     if (APR_SUCCESS != status) {
         apr_file_printf(cd.err, "connectcap: could not read users from '%s': %pm\n",
                 cd.passwd, &status);
+        return EXIT_FAILURE;
+    }
+
+    status = apr_filepath_set(cd.directory, cd.pool);
+    if (APR_SUCCESS != status) {
+        apr_file_printf(cd.err, "connectcap: could not change directory to '%s': %pm\n",
+                cd.directory, &status);
         return EXIT_FAILURE;
     }
 
