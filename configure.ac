@@ -2,11 +2,11 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(connectdump, 1.0.0, minfrin@sharp.fm)
+AC_INIT(connectcap, 1.0.0, minfrin@sharp.fm)
 AC_CONFIG_AUX_DIR(build-aux)
 AC_CONFIG_MACRO_DIRS([m4])
 AM_INIT_AUTOMAKE([dist-bzip2])
-AC_CONFIG_FILES([Makefile connectdump.spec])
+AC_CONFIG_FILES([Makefile connectcap.spec])
 AC_CONFIG_HEADERS([config.h])
 
 # Checks for programs.
