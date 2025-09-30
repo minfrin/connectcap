@@ -955,7 +955,7 @@ apr_status_t read_passwd(connectcap_t* cd)
         return status;
     }
 
-    if (finfo.protection & (APR_FINFO_GPROT | APR_FINFO_WPROT)) {
+    if (finfo.protection & (0xFF)) {
         apr_file_printf(cd->err, "connectcap: '%s' is group/world readable, ignoring\n",
                 cd->passwd);
 
