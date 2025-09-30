@@ -6,4 +6,5 @@ servicedir = $(prefix)/lib/systemd/system
 dist_service_DATA = connectcap.service
 
 spooldir = $(localstatedir)/spool/connectcap
+spool_DATA = 
 
