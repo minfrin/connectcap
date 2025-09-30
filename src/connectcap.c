@@ -51,6 +51,8 @@
 #define DEFAULT_PASSWD_FILE "ccpasswd"
 #define DEFAULT_REALM "connectcap"
 
+#define PASSWORD_MIN 16
+
 #define HUGE_STRING_LEN 8192
 
 #define CRLF "\015\012"
@@ -1020,6 +1022,8 @@ apr_status_t read_passwd(connectcap_t* cd)
         char *a1, *u;
         user_t *user;
 
+        apr_size_t plen;
+
         if (line[0] == '#') {
             continue;
         }
@@ -1037,6 +1041,15 @@ apr_status_t read_passwd(connectcap_t* cd)
         }
 
         if (!username || !password || !mail) {
+            continue;
+        }
+
+        plen = strlen(password);
+        if (plen < PASSWORD_MIN) {
+            apr_file_printf(cd->err,
+                    "connectcap: user '%s' password too short (%" APR_SIZE_T_FMT "<%" APR_SIZE_T_FMT "), ignoring\n",
+                    username, plen, (apr_size_t)PASSWORD_MIN);
+
             continue;
         }
 
