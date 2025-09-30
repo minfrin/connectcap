@@ -50,6 +50,6 @@ occurring are not the same place.
 %attr(0750,root,root) %{_localstatedir}/spool/%{name}
 %{_unitdir}/%{name}.service
 
-%doc AUTHORS ChangeLog README
+%doc AUTHORS ChangeLog
 %license COPYING
 
