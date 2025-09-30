@@ -1,7 +1,7 @@
 
 ACLOCAL_AMFLAGS = -I m4
 
-bin_PROGRAMS = connectcap
+sbin_PROGRAMS = connectcap
 connectcap_SOURCES = connectcap.c
 
 dist_man_MANS = connectcap.1
