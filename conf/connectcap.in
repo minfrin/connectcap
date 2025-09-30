@@ -1,4 +1,9 @@
 #
 #
-OPTIONS=""
+# Additional options:
+# -4 ipv4    IPv4 source address
+# -6 ipv6    IPv6 source address
+# -r realm   Realm for authentication
+
+OPTIONS="-d /var/spool/connectcap -p /etc/connectcap/ccpasswd -i any 3128"
 
