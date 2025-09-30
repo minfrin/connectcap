@@ -1,0 +1,6 @@
+# ccpasswd files have the format username:password:mail
+#
+# SECURITY WARNING: This file contains plain text passwords.
+# Do not use a password that is used elsewhere. Passwords
+# must have a minimum length of 16 characters.
+
