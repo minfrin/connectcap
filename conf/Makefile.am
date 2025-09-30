@@ -1,9 +1,9 @@
 
 sysconfigdir = $(sysconfdir)/sysconfig
-sysconfig_DATA = connectcap
+dist_sysconfig_DATA = connectcap
 
 servicedir = $(prefix)/lib/systemd/system
-service_DATA = connectcap.service
+dist_service_DATA = connectcap.service
 
 spooldir = $(localstatedir)/spool/connectcap
 
