@@ -12,6 +12,10 @@ BuildRequires: clang
 BuildRequires: autoconf
 BuildRequires: automake
 BuildRequires: libtool
+BuildRequires: pkgconfig(apr-1)
+BuildRequires: pkgconfig(apr-util-1)
+BuildRequires: pkgconfig(libcrypto)
+BuildRequires: pkgconfig(libpcap)
 
 %description
 The connectdump daemon is an https CONNECT proxy that records all outgoing
