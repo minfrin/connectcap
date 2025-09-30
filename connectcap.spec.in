@@ -45,9 +45,9 @@ occurring are not the same place.
 %files
 %{_sbindir}/connectcap
 %{_mandir}/man1/connectcap.1*
-%attr(0640,root,root) %config(noreplace) %{_sysconfdir}/%{name}/ccpasswd
+%attr(0600,root,root) %config(noreplace) %{_sysconfdir}/%{name}/ccpasswd
 %attr(0644,root,root) %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
-%attr(0750,root,root) %{_localstatedir}/spool/%{name}
+%attr(2750,root,connectcap) %{_localstatedir}/spool/%{name}
 %{_unitdir}/%{name}.service
 
 %doc AUTHORS ChangeLog

@@ -948,11 +948,18 @@ apr_status_t read_passwd(connectcap_t* cd)
 
     apr_pool_create(&pool, cd->pool);
 
-    status = apr_stat(&finfo, cd->passwd, APR_FINFO_MTIME, pool);
+    status = apr_stat(&finfo, cd->passwd, APR_FINFO_MTIME | APR_FINFO_GPROT | APR_FINFO_WPROT, pool);
 
     if (APR_SUCCESS != status) {
         apr_pool_destroy(pool);
         return status;
+    }
+
+    if (finfo.protection & (APR_FINFO_GPROT | APR_FINFO_WPROT)) {
+        apr_file_printf(cd->err, "connectcap: '%s' is group/world readable, ignoring\n",
+                cd->passwd);
+
+        return APR_EGENERAL;
     }
 
     if (users) {
@@ -3748,6 +3755,10 @@ int main(int argc, const char * const argv[])
     }
 
     status = read_passwd(&cd);
+    if (APR_EGENERAL == status) {
+        /* already handled */
+        return EXIT_FAILURE;
+    }
     if (APR_SUCCESS != status) {
         apr_file_printf(cd.err, "connectcap: could not read users from '%s': %pm\n",
                 cd.passwd, &status);
