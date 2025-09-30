@@ -1,0 +1,14 @@
+[Unit]
+Description=connectcap Diagnostics Proxy
+After=network.target
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sysconfig/connectcap
+ExecStart=/usr/sbin/connectcap $OPTIONS
+Restart=on-abnormal
+
+[Install]
+WantedBy=multi-user.target
+

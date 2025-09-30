@@ -3,7 +3,11 @@ SUBDIRS = src
 
 EXTRA_DIST = connectcap.spec
 
-sysconfigdir=$(sysconfdir)/sysconfig
+sysconfigdir = $(sysconfdir)/sysconfig
 sysconfig_DATA = connectcap
+
+servicedir = $(prefix)/lib/systemd/system
+service_DATA = connectcap.service
+
 spooldir = $(localstatedir)/spool/connectcap
 
