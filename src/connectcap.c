@@ -180,6 +180,11 @@ typedef struct request_t {
     const char *username;
 
     /**
+     * Mail address of the successfully logged in user
+     */
+    const char *mail;
+
+    /**
      * Is the username hashed by the client?
      */
     unsigned int userhash:1;
@@ -1496,13 +1501,13 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
     /*
      * Create the directory for the pcap file.
      */
-    status = apr_dir_make_recursive(request->request.username, APR_FPROT_OS_DEFAULT, pool);
+    status = apr_dir_make_recursive(request->request.mail, APR_FPROT_OS_DEFAULT, pool);
 
     if (APR_SUCCESS != status) {
         apr_file_printf(cd->err,
                 "connectcap[%d]: directory create of '%s' failed for '%s:%hu': %pm\n",
                 request->number,
-                request->request.username,
+                request->request.mail,
                 request->request.host,
                 request->request.port, &status);
 
@@ -1522,7 +1527,7 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
      * For now, it's the number, the host, port, and pcap.
      */
     wname = apr_psprintf(pool, "%s/%d-%s-%d.pcap",
-            request->request.username,
+            request->request.mail,
             request->number, request->request.host,
             request->request.port);
 
@@ -1553,7 +1558,7 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
      * For now, it's the number, the host, port, and eml.
      */
     ename = apr_psprintf(pool, "%s/%d-%s-%d.eml",
-            request->request.username,
+            request->request.mail,
             request->number, request->request.host,
             request->request.port);
 
@@ -2436,6 +2441,7 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
 
     /* if we got this far, we're in! */
     request->request.username = apr_pstrdup(request->pool, user->username);
+    request->request.mail = apr_pstrdup(request->pool, user->mail);
     request->request.not_authenticated = NULL;
 
     return APR_SUCCESS;
