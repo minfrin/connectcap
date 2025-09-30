@@ -27,15 +27,28 @@ occurring are not the same place.
 %setup -q
 
 %build
-%configure
+%configure --sysconfdir=%{_sysconfdir} --localstatedir=%{_localstatedir}
 %make_build
 
 %install
 %make_install
 
+%post
+%systemd_post %{name}.service
+
+%preun
+%systemd_preun %{name}.service
+
+%postun
+%systemd_postun_with_restart %{name}.service
+
 %files
 %{_bindir}/connectdump
 %{_mandir}/man1/connectdump.1*
+%attr(0640,root,root) %config(noreplace) %{_sysconfdir}/%{name}/ccpasswd
+%attr(0644,root,root) %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
+%attr(0750,root,root) %{_localstatedir}/spool/%{name}
+%{_unitdir}/%{name}.service
 
 %doc AUTHORS ChangeLog README
 %license COPYING
