@@ -2000,7 +2000,7 @@ apr_status_t do_connect(connectcap_t* cd, event_t *request)
     return APR_SUCCESS;
 }
 
-apr_status_t do_authenticate(connectcap_t* cd, event_t *request)
+apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
 {
     const char **authenticate;
     char nonce[NONCE_LEN + 1];
@@ -2124,7 +2124,7 @@ apr_status_t do_request(connectcap_t* cd, event_t *conn)
     return APR_SUCCESS;
 }
 
-apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
+apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char *buf)
 {
     char *tok_state;
 
@@ -2719,7 +2719,7 @@ apr_status_t do_conn_read(connectcap_t* cd, event_t *conn)
                         "connectcap[%d]: unauthenticated request from %pI\n",
                         conn->number, conn->conn.sa);
 
-                do_authenticate(cd, request);
+                make_proxy_authenticate(cd, request);
 
                 send_response(request, "407 Proxy Authentication Required", request->request.not_authenticated);
 
@@ -2830,7 +2830,7 @@ apr_status_t do_conn_read(connectcap_t* cd, event_t *conn)
                             conn->number, buf, conn->conn.sa);
                 }
 
-                status = do_request_header(cd, request, buf);
+                status = parse_proxy_authorization(cd, request, buf);
                 if (APR_SUCCESS != status) {
 
                     /* error is already handled */
