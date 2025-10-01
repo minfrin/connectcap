@@ -2227,8 +2227,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* realm must match */
     if (!realm || strcmp(cd->realm, realm)) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: realm '%s' does not match '%s', auth denied\n",
-                request->number, request->request.sa, realm, cd->realm);
+                "connectcap[%d]: browser %pI: realm '%s' does not match '%s' for username '%s', auth denied\n",
+                request->number, request->request.sa, realm, cd->realm, username);
 
         request->request.not_authenticated = "Realm does not match\n";
         return APR_SUCCESS;
@@ -2237,8 +2237,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* uri must match address */
     if (!uri || strcmp(request->request.address, uri)) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: uri '%s' does not match '%s', auth denied\n",
-                request->number, request->request.sa, uri, request->request.address);
+                "connectcap[%d]: browser %pI: uri '%s' does not match '%s' for username '%s', auth denied\n",
+                request->number, request->request.sa, uri, request->request.address, username);
 
         request->request.not_authenticated = "URI does not match\n";
         return APR_SUCCESS;
@@ -2259,8 +2259,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     }
     else {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: algorithm '%s' does not match 'SHA-512-256', 'SHA-256', 'MD5', auth denied\n",
-                request->number, request->request.sa, algorithm);
+                "connectcap[%d]: browser %pI: algorithm '%s' does not match 'SHA-512-256', 'SHA-256', 'MD5' for username '%s', auth denied\n",
+                request->number, request->request.sa, algorithm, username);
 
         request->request.not_authenticated = "Algorithm is not one of 'SHA-512-256', 'SHA-256', 'MD5'\n";
         return APR_SUCCESS;
@@ -2269,8 +2269,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* nonce must be present */
     if (!nonce) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: nonce is missing, auth denied\n",
-                request->number, request->request.sa);
+                "connectcap[%d]: browser %pI: nonce is missing for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
 
         request->request.not_authenticated = "Nonce is missing\n";
         return APR_SUCCESS;
@@ -2278,8 +2278,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* nonce must be correct length */
     else if (NONCE_LEN != (len = strlen(nonce))) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: nonce is wrong length (%d != %d), auth denied\n",
-                request->number, request->request.sa, NONCE_LEN, len);
+                "connectcap[%d]: browser %pI: nonce is wrong length (%d != %d) for username '%s', auth denied\n",
+                request->number, request->request.sa, NONCE_LEN, len, username);
 
         request->request.not_authenticated = "Nonce is wrong length\n";
         return APR_SUCCESS;
@@ -2309,8 +2309,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
         /* nonce digest must match computed digest */
         if (memcmp(digest1, digest2, sizeof(digest1))) {
             apr_file_printf(cd->err,
-                    "connectcap[%d]: browser %pI: nonce digest mismatch (stale), auth denied\n",
-                    request->number, request->request.sa);
+                    "connectcap[%d]: browser %pI: nonce digest mismatch (stale) for username '%s', auth denied\n",
+                    request->number, request->request.sa, username);
 
             request->request.not_authenticated = "Nonce digest mismatch\n";
             request->request.stale = 1;
@@ -2323,8 +2323,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* nonce count must be present */
     if (!nc) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: nc is missing, auth denied\n",
-                request->number, request->request.sa);
+                "connectcap[%d]: browser %pI: nc is missing for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
 
         request->request.not_authenticated = "Nonce count is missing\n";
         return APR_SUCCESS;
@@ -2335,8 +2335,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* cnonce must be present */
     if (!cnonce) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: cnonce is missing, auth denied\n",
-                request->number, request->request.sa);
+                "connectcap[%d]: browser %pI: cnonce is missing for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
 
         request->request.not_authenticated = "Client nonce is missing\n";
         return APR_SUCCESS;
@@ -2345,8 +2345,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* qop must be auth */
     if (!qop || strcmp("auth", qop)) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: qop '%s' does not match 'auth', auth denied\n",
-                request->number, request->request.sa, qop);
+                "connectcap[%d]: browser %pI: qop '%s' does not match 'auth' for username '%s', auth denied\n",
+                request->number, request->request.sa, qop, username);
 
         request->request.not_authenticated = "QOP is not 'auth'\n";
         return APR_SUCCESS;
@@ -2367,8 +2367,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     }
     else {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: userhash '%s' not recognised, auth denied\n",
-                request->number, request->request.sa, userhash);
+                "connectcap[%d]: browser %pI: userhash '%s' not recognised for username '%s', auth denied\n",
+                request->number, request->request.sa, userhash, username);
 
         request->request.not_authenticated = "Userhash not recognised\n";
         return APR_SUCCESS;
@@ -2388,8 +2388,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
     /* response must be present */
     if (!response) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: response is missing, auth denied\n",
-                request->number, request->request.sa);
+                "connectcap[%d]: browser %pI: response is missing for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
 
         request->request.not_authenticated = "Response is missing\n";
         return APR_SUCCESS;
@@ -2400,8 +2400,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
             (DIGEST_MD5 == digest && APR_MD5_DIGESTSIZE*2 == len))) {
 
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: response has wrong length (%d), auth denied\n",
-                request->number, request->request.sa, len);
+                "connectcap[%d]: browser %pI: response has wrong length (%d) for username '%s', auth denied\n",
+                request->number, request->request.sa, len, username);
 
         request->request.not_authenticated = "Response is wrong length\n";
         return APR_SUCCESS;
@@ -2430,8 +2430,8 @@ apr_status_t do_request_header(connectcap_t* cd, event_t *request, char *buf)
         /* response digest must match computed digest */
         if (strcmp(r, response)) {
             apr_file_printf(cd->err,
-                    "connectcap[%d]: browser %pI: response mismatch (password incorrect), auth denied\n",
-                    request->number, request->request.sa);
+                    "connectcap[%d]: browser %pI: response mismatch for username '%s' (password incorrect), auth denied\n",
+                    request->number, request->request.sa, username);
 
             request->request.not_authenticated = "Password incorrect\n";
             return APR_SUCCESS;
@@ -2730,12 +2730,10 @@ apr_status_t do_conn_read(connectcap_t* cd, event_t *conn)
             else if (!size) {
 
                 apr_file_printf(cd->err,
-                        "connectcap[%d]: end of headers from %pI, starting pump\n",
-                        conn->number, conn->conn.sa);
+                        "connectcap[%d]: browser %pI: user '%s' authenticated successfuly, starting pump\n",
+                        conn->number, conn->conn.sa, request->request.username);
 
-#if 1
                 do_connect(cd, request);
-#endif
 
                 break;
             }
@@ -2826,9 +2824,11 @@ apr_status_t do_conn_read(connectcap_t* cd, event_t *conn)
             else {
                 /* header line */
 
-                apr_file_printf(cd->err,
-                        "connectcap[%d]: header line '%s' received from %pI\n",
-                        conn->number, buf, conn->conn.sa);
+                if (cd->verbose) {
+                    apr_file_printf(cd->err,
+                            "connectcap[%d]: header line '%s' received from %pI\n",
+                            conn->number, buf, conn->conn.sa);
+                }
 
                 status = do_request_header(cd, request, buf);
                 if (APR_SUCCESS != status) {
