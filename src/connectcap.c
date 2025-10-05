@@ -50,6 +50,7 @@
 #define DEFAULT_DIRECTORY "."
 #define DEFAULT_PASSWD_FILE "ccpasswd"
 #define DEFAULT_REALM "connectcap"
+#define DEFAULT_CLIENTS_SIZE 16384
 
 #define PASSWORD_MIN 16
 
@@ -94,6 +95,10 @@ typedef struct user_t {
     const char *mail;
 } user_t;
 
+typedef struct client_t {
+	apr_uint64_t expected_nc;
+} client_t;
+
 typedef struct connectcap_t {
     apr_pool_t *pool;
     apr_pool_t *tpool;
@@ -110,6 +115,8 @@ typedef struct connectcap_t {
     apr_array_header_t *events;
     apr_pollset_t *pollset;
     apr_bucket_alloc_t *alloc;
+    apr_array_header_t *clients;
+    apr_uint64_t opaque_counter;
     int numbers;
     prefer_e prefer;
     apr_int32_t family;
@@ -2003,6 +2010,7 @@ apr_status_t do_connect(connectcap_t* cd, event_t *request)
 apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
 {
     const char **authenticate;
+    const char *opaque;
     char nonce[NONCE_LEN + 1];
     time_rec t;
 
@@ -2021,6 +2029,11 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
     apr_encode_base64_binary(nonce, t.arr, sizeof(t.arr), APR_ENCODE_NONE, NULL);
 
     /*
+     * Opaque is a counter, generate the next count
+     */
+    opaque = apr_ltoa(request->pool, (long)cd->opaque_counter++);
+
+    /*
      * The nonce has meaning to us only, not the client, so we
      * can use the highest digest we support.
      */
@@ -2031,7 +2044,7 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
     EVP_DigestInit_ex(mdctx, md, NULL);
     EVP_DigestUpdate(mdctx, cd->realm, strlen(cd->realm));
     EVP_DigestUpdate(mdctx, t.arr, sizeof(t.arr));
-//    EVP_DigestUpdate(mdctx, opaque, strlen(opaque));
+    EVP_DigestUpdate(mdctx, opaque, strlen(opaque));
     EVP_DigestFinal_ex(mdctx, digest, NULL);
 
     apr_encode_base16_binary(nonce + NONCE_TIME_LEN, digest, sizeof(digest), APR_ENCODE_LOWER, NULL);
@@ -2046,8 +2059,8 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
             "algorithm=SHA-512-256,"
             "nonce=\"%s\","
             "stale=%s,"
-            "opaque=\"FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS\","
-            "userhash=false", cd->realm, nonce, stale);
+            "opaque=\"%s\","
+            "userhash=false", cd->realm, nonce, stale, opaque);
 
     apr_file_printf(cd->err,
             "connectcap[%d]: authenticate: %s\n",
@@ -2061,8 +2074,8 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
             "algorithm=SHA-256,"
             "nonce=\"%s\","
             "stale=%s,"
-            "opaque=\"FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS\","
-            "userhash=false", cd->realm, nonce, stale);
+            "opaque=\"%s\","
+            "userhash=false", cd->realm, nonce, stale, opaque);
 
     apr_file_printf(cd->err,
             "connectcap[%d]: authenticate: %s\n",
@@ -2076,8 +2089,8 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
             "algorithm=MD5,"
             "nonce=\"%s\","
             "stale=%s,"
-            "opaque=\"FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS\","
-            "userhash=false", cd->realm, nonce, stale);
+            "opaque=\"%s\","
+            "userhash=false", cd->realm, nonce, stale, opaque);
 
     apr_file_printf(cd->err,
             "connectcap[%d]: authenticate: %s\n",
@@ -2139,9 +2152,7 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     const char *cnonce = NULL;
     const char *qop = NULL;
     const char *response = NULL;
-#if 0
     const char *opaque = NULL;
-#endif
     const char *userhash = NULL;
 
     user_t *user;
@@ -2205,11 +2216,9 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         else if (!strcmp(key, "response")) {
             response = value;
         }
-#if 0
         else if (!strcmp(key, "opaque")) {
             opaque = value;
         }
-#endif
         else if (!strcmp(key, "userhash")) {
             userhash = value;
         }
@@ -2266,6 +2275,16 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         return APR_SUCCESS;
     }
 
+    /* opaque must be present */
+    if (!opaque) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: browser %pI: opaque is missing for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
+
+        request->request.not_authenticated = "Opaque is missing\n";
+        return APR_SUCCESS;
+    }
+
     /* nonce must be present */
     if (!nonce) {
         apr_file_printf(cd->err,
@@ -2301,7 +2320,7 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         EVP_DigestInit_ex(mdctx, md, NULL);
         EVP_DigestUpdate(mdctx, cd->realm, strlen(cd->realm));
         EVP_DigestUpdate(mdctx, t.arr, sizeof(t.arr));
-    //    EVP_DigestUpdate(mdctx, opaque, strlen(opaque));
+        EVP_DigestUpdate(mdctx, opaque, strlen(opaque));
         EVP_DigestFinal_ex(mdctx, digest1, NULL);
 
         apr_decode_base16_binary(digest2, nonce + NONCE_TIME_LEN, NONCE_HASH_LEN, APR_ENCODE_LOWER, NULL);
@@ -2318,7 +2337,6 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         }
 
     }
-
 
     /* nonce count must be present */
     if (!nc) {
@@ -2351,8 +2369,6 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         request->request.not_authenticated = "QOP is not 'auth'\n";
         return APR_SUCCESS;
     }
-
-    // fixme opaque is optional
 
     /* userhash is optional, but must be well formed */
     if (!userhash) {
@@ -3714,6 +3730,8 @@ int main(int argc, const char * const argv[])
     cd.directory = DEFAULT_DIRECTORY;
     cd.passwd = DEFAULT_PASSWD_FILE;
     cd.realm = DEFAULT_REALM;
+
+    cd.clients = apr_array_make(cd.pool, DEFAULT_CLIENTS_SIZE, sizeof(client_t));
 
     apr_getopt_init(&opt, cd.pool, argc, argv);
     while ((status = apr_getopt_long(opt, cmdline_opts, &optch, &optarg))
