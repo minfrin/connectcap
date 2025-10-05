@@ -2038,7 +2038,7 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
     index = cd->opaque_counter % DEFAULT_CLIENTS_SIZE;
     client = &cd->clients[index];
     client->opaque_counter = cd->opaque_counter;
-    client->expected_nc = 0;
+    client->expected_nc = 1;
 
     cd->opaque_counter++;
 
