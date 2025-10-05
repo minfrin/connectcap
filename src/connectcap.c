@@ -1614,8 +1614,6 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
     capture->pfd.client_data = capture;
     capture->number = pump->number;
     capture->type = EVENT_CAPTURE;
-//    capture->capture.lsa = lsa;
-//    capture->capture.psa = psa;
     capture->capture.sd = sd;
     capture->capture.host = apr_pstrdup(pool, pump->pump.host);
     capture->capture.scope_id = apr_pstrdup(pool, pump->pump.scope_id);
@@ -2046,8 +2044,6 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
      * The nonce has meaning to us only, not the client, so we
      * can use the highest digest we support.
      */
-
-    // fixme: be better at preventing replay attacks
 
     mdctx = EVP_MD_CTX_create();
     EVP_DigestInit_ex(mdctx, md, NULL);
@@ -3317,61 +3313,7 @@ int do_poll(connectcap_t* cd)
         apr_interval_time_t timeout = -1;
         apr_int32_t num = 0;
 
-//        apr_skiplistnode *n;
-
         event_verify(cd->events);
-
-#if 0
-        /* how to iterate a skiplist */
-        apr_file_printf(cd->err, "*********** skiplist %d entries: ", cd->events->nelts);
-//        for (n = apr_skiplist_getlist(cd->events); n; apr_skiplist_next(cd->events, &n)) {
-//            event_t *event = apr_skiplist_element(n);
-
-        for (i = 0; i < cd->events->nelts; i++) {
-            event_t *event = APR_ARRAY_IDX(cd->events, i, event_t *);
-
-        // fixme
-
-            switch (event->type) {
-            case EVENT_NONE: {
-                apr_file_printf(cd->err, "***%d(%pp) ",
-                        event->number, event);
-                assert(0);
-
-                break;
-            }
-            case EVENT_LISTEN: {
-                apr_file_printf(cd->err, "L%d(%pp) ",
-                        event->number, event);
-
-                break;
-            }
-            case EVENT_CONN: {
-
-                apr_file_printf(cd->err, "R%d(%pp) ",
-                        event->number, event);
-
-                break;
-            }
-            case EVENT_PUMP: {
-
-                apr_file_printf(cd->err, "P%d(%pp) ",
-                        event->number, event);
-
-                break;
-            }
-            case EVENT_CAPTURE: {
-
-                apr_file_printf(cd->err, "C%d(%pp) ",
-                        event->number, event);
-
-                break;
-            }
-            }
-
-        }
-        apr_file_printf(cd->err, "\n");
-#endif
 
         now = apr_time_now();
 
@@ -3566,8 +3508,6 @@ int do_listen(connectcap_t* cd, const char **args)
     apr_status_t status;
 
     cd->events = apr_array_make(cd->pool, 64, sizeof(event_t *));
-//    apr_skiplist_init(&cd->events, cd->pool);
-//    apr_skiplist_set_compare(cd->events, timer_comp, timer_compk);
 
     status = apr_pollset_create(&cd->pollset, DEFAULT_POLLSOCKETS, cd->pool,
                                 APR_POLLSET_NOCOPY | APR_POLLSET_WAKEABLE );
@@ -3758,8 +3698,6 @@ int main(int argc, const char * const argv[])
     apr_getopt_t *opt;
     const char *optarg;
     struct sigaction sa = { 0 };
-
-//    connectcap_t cd = { 0 };
 
     int optch;
     apr_status_t status = 0;
