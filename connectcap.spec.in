@@ -33,6 +33,9 @@ occurring are not the same place.
 %install
 %make_install
 
+%pre
+getent group connectcap >/dev/null || groupadd -r connectcap
+
 %post
 %systemd_post %{name}.service
 
