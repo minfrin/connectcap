@@ -1008,7 +1008,7 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
             request->request.port);
 
     status = apr_file_open(&eml, ename,
-            APR_FOPEN_WRITE | APR_FOPEN_CREATE | APR_FOPEN_TRUNCATE,
+    		APR_FOPEN_READ | APR_FOPEN_WRITE | APR_FOPEN_CREATE | APR_FOPEN_TRUNCATE,
             APR_FPROT_OS_DEFAULT, pool);
     if (APR_SUCCESS != status) {
         apr_file_printf(cd->err,
