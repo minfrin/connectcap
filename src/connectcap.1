@@ -55,6 +55,10 @@ Path to the directory where capture files are saved. Defaults to the current dir
 Interface containing the source addresses. This interface will be used to capture traffic.
 .TP
 .B
+\fB-l\fP, \fB--listen\fP [addr:]port
+Listen to this IP address and port for proxy requests. If IP address is unspecified, binds to all IPs on the port specified.
+.TP
+.B
 \fB-p\fP, \fB--passwd\fP path
 File containing usernames and passwords.
 .TP

@@ -112,7 +112,9 @@ typedef struct connectcap_t {
     const char *realm;
     const char *directory;
     const char *passwd;
+    const char **args;
     users_t *users;
+    apr_array_header_t *listen;
     apr_array_header_t *events;
     apr_pollset_t *pollset;
     apr_bucket_alloc_t *alloc;
@@ -471,6 +473,7 @@ static const apr_getopt_option_t
     { "source-ipv6", '6', 1, "  -6, --source-ipv6 ip6\t\t\tSource address for IPv6 connections. If specified before the -4 option, attempt IPv6 first." },
     { "directory", 'd', 1, "  -d, --directory path\t\t\tPath to the directory where capture files are saved. Defaults to the current directory." },
     { "interface", 'i', 1, "  -i, --interface dev\t\t\tInterface containing the source addresses. This interface will be used to capture traffic." },
+    { "listen", 'l', 1, "  -l, --listen [addr:]port\t\t\tListen to this IP address and port for proxy requests. If IP address is unspecified, binds to all IPs on the port specified." },
     { "passwd", 'p', 1, "  -p, --passwd path\t\t\tFile containing usernames and passwords." },
     { "realm", 'r', 1, "  -r, --realm name\t\t\tName of the realm. Defaults to " DEFAULT_REALM "." },
     { NULL }
@@ -3503,9 +3506,10 @@ int do_poll(connectcap_t* cd)
     return EXIT_SUCCESS;
 }
 
-int do_listen(connectcap_t* cd, const char **args)
+int do_listen(connectcap_t* cd)
 {
     apr_status_t status;
+    int i;
 
     cd->events = apr_array_make(cd->pool, 64, sizeof(event_t *));
 
@@ -3517,15 +3521,15 @@ int do_listen(connectcap_t* cd, const char **args)
         return EXIT_FAILURE;
     }
 
-    while (args && *args) {
+    for (i = 0; i < cd->listen->nelts; i++) {
+
+        const char *arg = APR_ARRAY_IDX(cd->listen, i, const char *);
 
         apr_sockaddr_t *sa;
         char *host, *scope_id;
         apr_port_t port;
 
         int first = 1;
-
-        const char *arg = *(args++);
 
         status = apr_parse_addr_port(&host, &scope_id, &port, arg, cd->pool);
         if (status != APR_SUCCESS) {
@@ -3734,6 +3738,8 @@ int main(int argc, const char * const argv[])
     cd.passwd = DEFAULT_PASSWD_FILE;
     cd.realm = DEFAULT_REALM;
 
+    cd.listen = apr_array_make(cd.pool, 2, sizeof(const char *));
+
     cd.clients = apr_pcalloc(cd.pool, DEFAULT_CLIENTS_SIZE * sizeof(client_t));
 
     apr_getopt_init(&opt, cd.pool, argc, argv);
@@ -3763,6 +3769,11 @@ int main(int argc, const char * const argv[])
             cd.interface = optarg;
             break;
         }
+        case 'l': {
+            const char **listen = apr_array_push(cd.listen);
+            *listen = optarg;
+            break;
+        }
         case 'p': {
             cd.passwd = optarg;
             break;
@@ -3788,6 +3799,10 @@ int main(int argc, const char * const argv[])
 
     if (NO_PREFERENCE == cd.prefer) {
         return help(cd.err, argv[0], "One of -4 or -6 must be specified.\n", EXIT_FAILURE, cmdline_opts);
+    }
+
+    if (!cd.listen->nelts) {
+        return help(cd.err, argv[0], "At least one listen address/port must be specified.\n", EXIT_FAILURE, cmdline_opts);
     }
 
     /* ipv4 only */
@@ -3830,5 +3845,7 @@ int main(int argc, const char * const argv[])
         return EXIT_FAILURE;
     }
 
-    return do_listen(&cd, opt->argv + opt->ind);
+    cd.args = opt->argv + opt->ind;
+
+    return do_listen(&cd);
 }
