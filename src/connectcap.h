@@ -472,4 +472,11 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
 
 apr_status_t read_passwd(connectcap_t* cd);
 
+void event_verify(apr_array_header_t *events);
+int event_remove(apr_array_header_t *events, event_t *event);
+int event_cmp(const void *a, const void *b);
+void event_reindex(apr_array_header_t *events);
+void event_add(apr_array_header_t *events, event_t *event);
+event_t *event_peek(apr_array_header_t *events);
+
 #endif /* SRC_CONNECTCAP_H_ */

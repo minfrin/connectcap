@@ -2,7 +2,7 @@
 ACLOCAL_AMFLAGS = -I m4
 
 sbin_PROGRAMS = connectcap
-connectcap_SOURCES = connectcap.h connectcap.c digest.c
+connectcap_SOURCES = connectcap.h connectcap.c digest.c event.c
 
 dist_man_MANS = connectcap.1
 
