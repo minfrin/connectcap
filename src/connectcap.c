@@ -581,7 +581,6 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
 
     sendmail->timestamp = now;
     sendmail->when = 0;
-    event_add(cd->events, sendmail);
 
     apr_pollset_add(cd->pollset, &sendmail->pfd);
 
@@ -2472,8 +2471,9 @@ int do_poll(connectcap_t* cd)
                     break;
                 }
                 case EVENT_SENDMAIL: {
-                    /* not yet */
+                    /* sendmail should never have a timeout */
                     assert(0);
+
                     break;
                 }
                 }
