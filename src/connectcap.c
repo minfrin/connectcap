@@ -443,13 +443,13 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
             "Content-Transfer-Encoding: base64" CRLF
             "Content-Disposition: attachment;" CRLF
             "\tfilename=%s" CRLF
-            "Content-Type: application/octet-stream;" CRLF
+            "Content-Type: application/vnd.tcpdump.pcap;" CRLF
             "\tx-unix-mode=0644;" CRLF
             "\tname=\"%s\"" CRLF
             CRLF,
             boundary,
-            capture->capture.ename,
-            capture->capture.ename);
+            capture->capture.wname,
+            capture->capture.wname);
 
     status = apr_file_open(&wfd, capture->capture.wname,
             APR_FOPEN_READ,
@@ -581,8 +581,8 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     sendmail->sendmail.host = apr_pstrdup(pool, capture->capture.host);
     sendmail->sendmail.scope_id = apr_pstrdup(pool, capture->capture.scope_id);
     sendmail->sendmail.port = capture->capture.port;
-    sendmail->sendmail.username = capture->capture.username;
-    sendmail->sendmail.mail = capture->capture.mail;
+    sendmail->sendmail.username = apr_pstrdup(pool, capture->capture.username);
+    sendmail->sendmail.mail = apr_pstrdup(pool, capture->capture.mail);
     sendmail->sendmail.obb = obb;
 
     sendmail->timestamp = now;
@@ -1056,6 +1056,7 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
     capture->number = pump->number;
     capture->type = EVENT_CAPTURE;
     capture->capture.sd = sd;
+    capture->capture.address = apr_pstrdup(pool, pump->pump.address);
     capture->capture.host = apr_pstrdup(pool, pump->pump.host);
     capture->capture.scope_id = apr_pstrdup(pool, pump->pump.scope_id);
     capture->capture.port = pump->pump.port;
