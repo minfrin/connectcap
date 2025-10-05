@@ -39,6 +39,7 @@ void event_verify(apr_array_header_t *events)
         case EVENT_CONN:
         case EVENT_PUMP:
         case EVENT_CAPTURE:
+        case EVENT_SENDMAIL:
             break;
         default:
             /* bogus elements */
