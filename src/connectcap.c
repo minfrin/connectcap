@@ -2303,8 +2303,8 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     opaque_counter = apr_strtoi64(opaque, &end, 16);
     if (end) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: opaque not numeric for username '%s', auth denied\n",
-                request->number, request->request.sa, username);
+                "connectcap[%d]: browser %pI: opaque '%s' not numeric for username '%s', auth denied\n",
+                request->number, request->request.sa, opaque, username);
 
         request->request.not_authenticated = "Opaque is not numeric\n";
         return APR_SUCCESS;
@@ -2378,8 +2378,8 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     actual_nc = apr_strtoi64(nc, &end, 16);
     if (end) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: nc not numeric for username '%s', auth denied\n",
-                request->number, request->request.sa, username);
+                "connectcap[%d]: browser %pI: nc '%s' not numeric for username '%s', auth denied\n",
+                request->number, request->request.sa, nc, username);
 
         request->request.not_authenticated = "NC is not numeric\n";
         return APR_SUCCESS;
