@@ -96,7 +96,8 @@ typedef struct user_t {
 } user_t;
 
 typedef struct client_t {
-	apr_uint64_t expected_nc;
+    apr_uint64_t opaque_counter;
+    apr_uint64_t expected_nc;
 } client_t;
 
 typedef struct connectcap_t {
@@ -115,7 +116,7 @@ typedef struct connectcap_t {
     apr_array_header_t *events;
     apr_pollset_t *pollset;
     apr_bucket_alloc_t *alloc;
-    apr_array_header_t *clients;
+    client_t *clients;
     apr_uint64_t opaque_counter;
     int numbers;
     prefer_e prefer;
@@ -2012,7 +2013,9 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
     const char **authenticate;
     const char *opaque;
     char nonce[NONCE_LEN + 1];
+    client_t *client;
     time_rec t;
+    int index;
 
     unsigned char digest[SHA512_DIGEST_LENGTH];
     EVP_MD_CTX *mdctx;
@@ -2031,7 +2034,13 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
     /*
      * Opaque is a counter, generate the next count
      */
-    opaque = apr_ltoa(request->pool, (long)cd->opaque_counter++);
+    opaque = apr_ltoa(request->pool, (long)cd->opaque_counter);
+    index = cd->opaque_counter % DEFAULT_CLIENTS_SIZE;
+    client = &cd->clients[index];
+    client->opaque_counter = cd->opaque_counter;
+    client->expected_nc = 0;
+
+    cd->opaque_counter++;
 
     /*
      * The nonce has meaning to us only, not the client, so we
@@ -2139,7 +2148,7 @@ apr_status_t do_request(connectcap_t* cd, event_t *conn)
 
 apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char *buf)
 {
-    char *tok_state;
+    char *tok_state, *end;
 
     char *header, *scheme, *kv;
 
@@ -2156,7 +2165,11 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     const char *userhash = NULL;
 
     user_t *user;
+    client_t *client;
 
+    apr_uint64_t opaque_counter;
+    apr_uint64_t actual_nc;
+    int index;
     digest_e digest = NO_DIGEST;
 
     int len;
@@ -2285,6 +2298,18 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         return APR_SUCCESS;
     }
 
+    /* opaque must be numeric */
+    end = NULL;
+    opaque_counter = apr_strtoi64(opaque, &end, 16);
+    if (end) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: browser %pI: opaque not numeric for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
+
+        request->request.not_authenticated = "Opaque is not numeric\n";
+        return APR_SUCCESS;
+    }
+
     /* nonce must be present */
     if (!nonce) {
         apr_file_printf(cd->err,
@@ -2348,7 +2373,17 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         return APR_SUCCESS;
     }
 
-    // fixme: implement nonce count
+    /* nc must be numeric */
+    end = NULL;
+    actual_nc = apr_strtoi64(nc, &end, 16);
+    if (end) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: browser %pI: nc not numeric for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
+
+        request->request.not_authenticated = "NC is not numeric\n";
+        return APR_SUCCESS;
+    }
 
     /* cnonce must be present */
     if (!cnonce) {
@@ -2453,6 +2488,33 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
             return APR_SUCCESS;
         }
 
+    }
+
+    /* check the nc value, but after we checked the password */
+
+    index = opaque_counter % DEFAULT_CLIENTS_SIZE;
+    client = &cd->clients[index];
+    if (opaque_counter != client->opaque_counter) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: browser %pI: nonce stale for username '%s', auth denied\n",
+                request->number, request->request.sa, username);
+
+        request->request.not_authenticated = "Nonce is stale\n";
+        request->request.stale = 1;
+        return APR_SUCCESS;
+    }
+
+    if (actual_nc != client->expected_nc) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: browser %pI: nc mismatch (%" APR_UINT64_T_FMT "!=%" APR_UINT64_T_FMT ") for username '%s', auth denied\n",
+                request->number, request->request.sa, actual_nc, client->expected_nc, username);
+
+        request->request.not_authenticated = "Nonce is stale\n";
+        request->request.stale = 1;
+        return APR_SUCCESS;
+    }
+    else {
+        client->expected_nc++;
     }
 
     /* if we got this far, we're in! */
@@ -3731,7 +3793,7 @@ int main(int argc, const char * const argv[])
     cd.passwd = DEFAULT_PASSWD_FILE;
     cd.realm = DEFAULT_REALM;
 
-    cd.clients = apr_array_make(cd.pool, DEFAULT_CLIENTS_SIZE, sizeof(client_t));
+    cd.clients = apr_pcalloc(cd.pool, DEFAULT_CLIENTS_SIZE * sizeof(client_t));
 
     apr_getopt_init(&opt, cd.pool, argc, argv);
     while ((status = apr_getopt_long(opt, cmdline_opts, &optch, &optarg))
