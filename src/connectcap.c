@@ -2072,7 +2072,7 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
             "userhash=false", cd->realm, nonce, stale, opaque);
 
     apr_file_printf(cd->err,
-            "connectcap[%d]: authenticate: %s\n",
+            "connectcap[%d]: request authenticate: %s\n",
             request->number, *authenticate);
 
     /* followed bv SHA-256 */
@@ -2087,7 +2087,7 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
             "userhash=false", cd->realm, nonce, stale, opaque);
 
     apr_file_printf(cd->err,
-            "connectcap[%d]: authenticate: %s\n",
+            "connectcap[%d]: request authenticate: %s\n",
             request->number, *authenticate);
 
     /* lastly the venerable MD5 */
@@ -2102,7 +2102,7 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
             "userhash=false", cd->realm, nonce, stale, opaque);
 
     apr_file_printf(cd->err,
-            "connectcap[%d]: authenticate: %s\n",
+            "connectcap[%d]: request authenticate: %s\n",
             request->number, *authenticate);
 
     return APR_SUCCESS;
@@ -2188,6 +2188,12 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     if (strcasecmp(scheme, "DIGEST")) {
         /* ignore everything else */
         return APR_SUCCESS;
+    }
+
+    if (*tok_state) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: parse authenticate: %s\n",
+                request->number, tok_state + 1);
     }
 
     while ((kv = connectcap_strqtok(NULL, ", ", &tok_state))) {
@@ -2511,9 +2517,8 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         request->request.stale = 1;
         return APR_SUCCESS;
     }
-    else {
-        client->expected_nc++;
-    }
+
+    client->expected_nc++;
 
     /* if we got this far, we're in! */
     request->request.username = apr_pstrdup(request->pool, user->username);
