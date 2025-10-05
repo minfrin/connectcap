@@ -2193,7 +2193,7 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     if (*tok_state) {
         apr_file_printf(cd->err,
                 "connectcap[%d]: parse authenticate: %s\n",
-                request->number, tok_state + 1);
+                request->number, tok_state);
     }
 
     while ((kv = connectcap_strqtok(NULL, ", ", &tok_state))) {
@@ -2304,8 +2304,8 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         return APR_SUCCESS;
     }
 
-    /* opaque must be numeric */
-    opaque_counter = apr_strtoi64(opaque, NULL, 16);
+    /* opaque must be numeric and base 10 */
+    opaque_counter = apr_strtoi64(opaque, NULL, 10);
     if (APR_SUCCESS != errno) {
         apr_file_printf(cd->err,
                 "connectcap[%d]: browser %pI: opaque '%s' not numeric for username '%s', auth denied\n",
@@ -2378,7 +2378,7 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         return APR_SUCCESS;
     }
 
-    /* nc must be numeric */
+    /* nc must be numeric and base 16 */
     actual_nc = apr_strtoi64(nc, NULL, 16);
     if (APR_SUCCESS != errno) {
         apr_file_printf(cd->err,
