@@ -25,6 +25,7 @@
 #include "connectcap.h"
 
 #include <assert.h>
+#include <stdlib.h>
 
 void event_verify(apr_array_header_t *events)
 {

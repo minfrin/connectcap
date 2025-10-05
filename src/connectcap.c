@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <stdlib.h>
 
-
 static const apr_getopt_option_t
     cmdline_opts[] =
 {
