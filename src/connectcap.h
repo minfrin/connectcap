@@ -416,6 +416,16 @@ typedef struct capture_t {
     apr_port_t port;
 
     /**
+     * Username of the successfully logged in user
+     */
+    const char *username;
+
+    /**
+     * Mail address of the successfully logged in user
+     */
+    const char *mail;
+
+    /**
      * The pump we are capturing
      */
     struct event_t *pump;
@@ -434,7 +444,69 @@ typedef struct capture_t {
      * The eml save session
      */
     apr_file_t *eml;
+
+    /**
+     * Name of the pcap file
+     */
+    const char *wname;
+
+    /**
+     * Name of the eml file
+     */
+    const char *ename;
 } capture_t;
+
+typedef struct sendmail_t {
+    /**
+     * The actual socket
+     */
+    apr_file_t *fd;
+
+    /**
+     * Outgoing bucket brigade
+     */
+    apr_bucket_brigade *obb;
+
+    /**
+     * Address we are to connect to
+     */
+    char *address;
+
+    /**
+     * Host we are to connect to
+     */
+    char *host;
+
+    /**
+     * Scope ID of host we are to connect to
+     */
+    char *scope_id;
+
+    /**
+     * Port of host we are to connect to
+     */
+    apr_port_t port;
+
+    /**
+     * Username of the successfully logged in user
+     */
+    const char *username;
+
+    /**
+     * Mail address of the successfully logged in user
+     */
+    const char *mail;
+
+    /**
+     * The number of bytes written to browser
+     */
+    apr_size_t bytes_written;
+
+    /**
+     * Number of successful writes to browser
+     */
+    int writes;
+} sendmail_t;
 
 typedef enum event_e {
     EVENT_NONE,
@@ -443,6 +515,7 @@ typedef enum event_e {
     EVENT_REQUEST,
     EVENT_PUMP,
     EVENT_CAPTURE,
+    EVENT_SENDMAIL,
 } event_e;
 
 typedef struct event_t {
@@ -459,6 +532,7 @@ typedef struct event_t {
         request_t request;
         pump_t pump;
         capture_t capture;
+        sendmail_t sendmail;
     };
 } event_t;
 
@@ -478,5 +552,7 @@ int event_cmp(const void *a, const void *b);
 void event_reindex(apr_array_header_t *events);
 void event_add(apr_array_header_t *events, event_t *event);
 event_t *event_peek(apr_array_header_t *events);
+
+apr_status_t do_sendmail(connectcap_t* cd, event_t *capture);
 
 #endif /* SRC_CONNECTCAP_H_ */

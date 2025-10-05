@@ -20,6 +20,8 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#include <apr_uuid.h>
+
 static const apr_getopt_option_t
     cmdline_opts[] =
 {
@@ -58,7 +60,7 @@ static int help(apr_file_t *out, const char *name, const char *msg, int code,
             "  %s - https CONNECT proxy that records network traffic for diagnostics.\n"
             "\n"
             "SYNOPSIS\n"
-            "  %s [-4] [-6] [-v] [-h] address:port [address:port ...]\n"
+            "  %s [-4] [-6] [-v] [-h] -l address:port [/usr/bin/sendmail -t]\n"
             "\n"
             "DESCRIPTION\n"
             "\n"
@@ -69,6 +71,10 @@ static int help(apr_file_t *out, const char *name, const char *msg, int code,
             " idea being to provide predictable diagnostics for each connection.\n"
             "\n"
             "  The daemon will listen on all the addresses and ports specified.\n"
+            "\n"
+    		"  If a command is specified, it will be interpreted as a tool to\n"
+    		"  send email. The summary and pcap file will be sent to the email\n"
+    		"  address corresponding to the logged in user.\n"
             "\n"
             "OPTIONS\n", msg ? msg : "", n, n);
 
@@ -230,6 +236,12 @@ static apr_status_t cleanup_event(void *dummy)
         if (pump) {
             pump->pump.capture = NULL;
         }
+
+        do_sendmail(cd, event);
+
+        break;
+    }
+    case EVENT_SENDMAIL: {
         break;
     }
     }
@@ -303,6 +315,285 @@ apr_status_t send_response(event_t *request, const char *line, const char *fmt, 
     apr_pollset_add(conn->cd->pollset, &conn->pfd);
 
     return status;
+}
+
+apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
+{
+    apr_pool_t *pool;
+    apr_bucket_brigade *obb;
+    apr_bucket *b;
+    apr_file_t *efd;
+    apr_file_t *wfd;
+
+    event_t *sendmail;
+
+    apr_procattr_t *proc_attrs = NULL;
+    apr_proc_t proc;
+    apr_file_t *pipe_in_read = NULL, *pipe_in_write = NULL;
+
+    apr_uuid_t uuid;
+    char boundary[APR_UUID_FORMATTED_LENGTH + 1];
+
+    apr_time_t now = apr_time_now();
+
+    apr_off_t offset = 0, zero = 0, len = 0;
+
+    apr_status_t status;
+
+    assert(EVENT_CAPTURE == capture->type);
+
+    if (!cd->args || !cd->args[0]) {
+        return APR_SUCCESS;
+    }
+
+    apr_uuid_get(&uuid);
+    apr_uuid_format(boundary, &uuid);
+
+    apr_pool_create(&pool, cd->pool);
+
+    obb = apr_brigade_create(pool, cd->alloc);
+
+    /*
+     * Create the email to be sent.
+     *
+     * We need to base64 encode the pcap file when we send it,
+     * so to do that we detect the file buckets and base64 them
+     * before we send them.
+     *
+     * Ideally apr needs an encode bucket.
+     */
+
+    /* start of the email */
+    apr_brigade_printf(obb, NULL, NULL,
+            "MIME-Version: 1.0" CRLF
+            "Content-Type: multipart/mixed;" CRLF
+            "\tboundary=\"connectcap_%s\"" CRLF
+            "To: %s" CRLF
+            "Subject: [ConnectCap][%d] %s" CRLF
+            CRLF
+            "--connectcap_%s" CRLF
+            "Content-Transfer-Encoding: base64" CRLF
+            "Content-Type: text/plain; charset=\"UTF-8\"" CRLF
+            CRLF,
+            boundary,
+            capture->capture.mail,
+            capture->number,
+            capture->capture.address,
+            boundary);
+
+    status = apr_file_dup(&efd, capture->capture.eml, pool);
+    if (APR_SUCCESS != status) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file dup failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    if ((status = apr_file_seek(efd, APR_CUR, &offset)) != APR_SUCCESS) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file seek failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    if ((status = apr_file_seek(efd, APR_END, &len)) != APR_SUCCESS) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file seek failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    if ((status = apr_file_seek(efd, APR_SET, &zero)) != APR_SUCCESS) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file seek failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    b = apr_bucket_file_create(efd, 0, len, pool, cd->alloc);
+    APR_BRIGADE_INSERT_HEAD(obb, b);
+
+    /* in between the text and the attachment */
+    apr_brigade_printf(obb, NULL, NULL,
+            "--connectcap_%s" CRLF
+            "Content-Transfer-Encoding: base64" CRLF
+            "Content-Disposition: attachment;" CRLF
+            "\tfilename=%s" CRLF
+            "Content-Type: application/octet-stream;" CRLF
+            "\tx-unix-mode=0644;" CRLF
+            "\tname=\"%s\"" CRLF
+            CRLF,
+            boundary,
+            capture->capture.ename,
+            capture->capture.ename);
+
+    status = apr_file_open(&wfd, capture->capture.wname,
+            APR_FOPEN_READ,
+            APR_FPROT_OS_DEFAULT, pool);
+    if (APR_SUCCESS != status) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file open failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.wname,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    if ((status = apr_file_seek(wfd, APR_CUR, &offset)) != APR_SUCCESS) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file seek failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    if ((status = apr_file_seek(wfd, APR_END, &len)) != APR_SUCCESS) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file seek failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    if ((status = apr_file_seek(wfd, APR_SET, &zero)) != APR_SUCCESS) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: file seek failed for '%s': %pm\n",
+                capture->number,
+                capture->capture.ename,
+                &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    b = apr_bucket_file_create(wfd, 0, len, pool, cd->alloc);
+    APR_BRIGADE_INSERT_HEAD(obb, b);
+
+    /* end of the email */
+    apr_brigade_printf(obb, NULL, NULL,
+            "--connectcap_%s--" CRLF,
+            boundary);
+
+    b = apr_bucket_eos_create(cd->alloc);
+    APR_BRIGADE_INSERT_HEAD(obb, b);
+
+    /* clean up the files */
+    apr_file_remove(capture->capture.ename, pool);
+    apr_file_remove(capture->capture.wname, pool);
+    apr_dir_remove(capture->capture.mail, pool);
+
+    status = apr_file_pipe_create(&pipe_in_read, &pipe_in_write, pool);
+    if (APR_SUCCESS != status) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: pipe create failed for '%s:%hu': %pm\n",
+                capture->number,
+                capture->capture.host,
+                capture->capture.port, &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    status = apr_procattr_create(&proc_attrs, pool);
+    if (APR_SUCCESS != status) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: procattr create failed for '%s:%hu': %pm\n",
+                capture->number,
+                capture->capture.host,
+                capture->capture.port, &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+    apr_procattr_child_in_set(proc_attrs, pipe_in_read, NULL);
+    apr_procattr_error_check_set(proc_attrs, 1);
+    apr_procattr_cmdtype_set(proc_attrs, APR_PROGRAM_ENV);
+
+    status = apr_proc_create(&proc, cd->args[0], cd->args, NULL, proc_attrs, pool);
+    if (APR_SUCCESS != status) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: proc create '%s' failed for '%s:%hu': %pm\n",
+                capture->number,
+                cd->args[0],
+                capture->capture.host,
+                capture->capture.port, &status);
+
+        apr_pool_destroy(pool);
+
+        return status;
+    }
+
+    /* sanity must prevail */
+    apr_file_close(pipe_in_read);
+
+    sendmail = apr_pcalloc(pool, sizeof(event_t));
+    sendmail->cd = cd;
+    sendmail->pool = pool;
+    sendmail->pfd.p = pool;
+    sendmail->pfd.desc_type = APR_POLL_FILE;
+    sendmail->pfd.desc.f = pipe_in_write;
+    /* wait for sendmail to be ready to write */
+    sendmail->pfd.reqevents = APR_POLLOUT;
+    sendmail->pfd.client_data = sendmail;
+    sendmail->number = capture->number;
+    sendmail->type = EVENT_SENDMAIL;
+    sendmail->sendmail.fd = pipe_in_write;
+    sendmail->sendmail.host = apr_pstrdup(pool, capture->capture.host);
+    sendmail->sendmail.scope_id = apr_pstrdup(pool, capture->capture.scope_id);
+    sendmail->sendmail.port = capture->capture.port;
+    sendmail->sendmail.username = capture->capture.username;
+    sendmail->sendmail.mail = capture->capture.mail;
+    sendmail->sendmail.obb = obb;
+
+    sendmail->timestamp = now;
+    sendmail->when = 0;
+    event_add(cd->events, sendmail);
+
+    apr_pollset_add(cd->pollset, &sendmail->pfd);
+
+    apr_pool_cleanup_register(pool, sendmail, cleanup_event,
+            apr_pool_cleanup_null);
+
+    /* time to send some email */
+
+    apr_file_printf(cd->err, "connectcap[%d]: sending '%s:%d' capture to '%s'\n",
+            sendmail->number, sendmail->sendmail.host, sendmail->sendmail.port, sendmail->sendmail.mail);
+
+    return APR_SUCCESS;
 }
 
 apr_status_t do_accept(connectcap_t* cd, event_t *event)
@@ -763,9 +1054,13 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
     capture->capture.host = apr_pstrdup(pool, pump->pump.host);
     capture->capture.scope_id = apr_pstrdup(pool, pump->pump.scope_id);
     capture->capture.port = pump->pump.port;
+    capture->capture.username = apr_pstrdup(pool, request->request.username);
+    capture->capture.mail = apr_pstrdup(pool, request->request.mail);
     capture->capture.pcap = pcap;
     capture->capture.dumper = dumper;
     capture->capture.eml = eml;
+    capture->capture.wname = wname;
+    capture->capture.ename = ename;
 
     capture->capture.pump = pump;
     pump->pump.capture = capture;
@@ -776,7 +1071,7 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
             apr_pool_cleanup_null);
 
     apr_file_printf(cd->err, "connectcap[%d]: capture '%s' started with filter: %s\n",
-            pump->number, request->request.host, buf);
+            capture->number, capture->capture.host, buf);
 
     return APR_SUCCESS;
 }
@@ -1965,6 +2260,146 @@ apr_status_t do_capture_hangup(connectcap_t* cd, event_t *capture)
     return APR_EGENERAL;
 }
 
+apr_status_t do_sendmail_write(connectcap_t* cd, event_t *sendmail)
+{
+    apr_bucket_brigade *obb;
+    apr_bucket *b;
+
+    const char *data;
+    apr_size_t length;
+
+    apr_status_t status = APR_SUCCESS;
+
+    assert(EVENT_SENDMAIL == sendmail->type);
+
+    obb = sendmail->sendmail.obb;
+
+    while (((b = APR_BRIGADE_FIRST(obb)) != APR_BRIGADE_SENTINEL(obb))) {
+
+        int must_encode = 0;
+
+        if (APR_BUCKET_IS_FILE(b)) {
+
+            /* we cheat a bit, file buckets are converted to base64
+             * encoding before we send them, ideally this is something
+             * APR does on its own.
+             */
+            apr_bucket_split(b, 57);
+
+            must_encode = 1;
+        }
+
+        if (APR_BUCKET_IS_EOS(b)) {
+
+            /* once we reach here, we have finished writing to the client
+             * and can close up this connection.
+             */
+            apr_file_printf(cd->err,
+                    "connectcap[%d]: sending close to sendmail: %s\n",
+                    sendmail->number, sendmail->sendmail.mail);
+
+            /* swap events from write to not write */
+            apr_pollset_remove(sendmail->cd->pollset, &sendmail->pfd);
+            sendmail->pfd.reqevents &= ~APR_POLLOUT;
+            apr_pollset_add(sendmail->cd->pollset, &sendmail->pfd);
+
+            /* tell sendmail we are done */
+            apr_file_close(sendmail->sendmail.fd);
+
+            apr_bucket_delete(b);
+
+            return APR_SUCCESS;
+        }
+
+        status = apr_bucket_read(b, &data, &length, APR_BLOCK_READ);
+
+        if (APR_SUCCESS != status) {
+            /* read attempt failed, give up */
+            apr_file_printf(cd->err,
+                    "connectcap[%d]: sendmail %s read %" APR_SIZE_T_FMT " bytes failed: %pm\n",
+                    sendmail->number, sendmail->sendmail.mail, length, &status);
+
+            apr_bucket_delete(b);
+
+            apr_pool_destroy(sendmail->pool);
+
+            return status;
+        }
+
+        if (length) {
+
+            apr_size_t requested = length;
+
+            if (must_encode) {
+                char buf[76 + sizeof(CRLF) + 1];
+
+                apr_encode_base64(buf, data, length, APR_ENCODE_NONE, &length);
+                strcpy(buf + length, "CRLF");
+                length += sizeof(CRLF);
+
+                status = apr_file_write(sendmail->sendmail.fd, buf, &length);
+            }
+            else {
+                status = apr_file_write(sendmail->sendmail.fd, data, &length);
+            }
+
+            if (APR_STATUS_IS_EAGAIN(status)) {
+                /* poll again */
+                return status;
+            }
+            else if (APR_SUCCESS != status) {
+
+                /* write attempt failed, give up */
+                apr_file_printf(cd->err,
+                        "connectcap[%d]: sendmail %s write %" APR_SIZE_T_FMT " bytes failed: %pm\n",
+                        sendmail->number, sendmail->sendmail.mail, length, &status);
+
+                apr_bucket_delete(b);
+
+                apr_pool_destroy(sendmail->pool);
+
+                return status;
+            }
+            else {
+
+                if (cd->verbose) {
+                    apr_file_printf(cd->err,
+                            "connectcap[%d]: sendmail '%s' write %" APR_SIZE_T_FMT " bytes\n",
+                            sendmail->number, sendmail->sendmail.mail, length);
+                }
+
+                sendmail->sendmail.bytes_written += length;
+                sendmail->sendmail.writes++;
+            }
+
+            if (must_encode) {
+                /* do nothing, we are already split */
+            }
+            else if (requested > length) {
+                apr_bucket_split(b, length);
+            }
+
+        }
+
+        apr_bucket_delete(b);
+    }
+
+    return APR_SUCCESS;
+}
+
+apr_status_t do_sendmail_hangup(connectcap_t* cd, event_t *sendmail)
+{
+    assert(EVENT_SENDMAIL == sendmail->type);
+
+    apr_file_printf(cd->err,
+            "connectcap[%d]: sendmail hung up\n",
+            sendmail->number);
+
+    apr_pool_destroy(sendmail->pool);
+
+    return APR_EGENERAL;
+}
+
 int do_poll(connectcap_t* cd)
 {
     apr_status_t status;
@@ -2034,6 +2469,11 @@ int do_poll(connectcap_t* cd)
 
                     apr_pool_destroy(event->pool);
 
+                    break;
+                }
+                case EVENT_SENDMAIL: {
+                    /* not yet */
+                    assert(0);
                     break;
                 }
                 }
@@ -2145,6 +2585,20 @@ int do_poll(connectcap_t* cd)
 
                     if (pollfd->rtnevents & (APR_POLLIN)) {
                         do_capture_read(cd, event);
+                        continue;
+                    }
+
+                    break;
+                }
+                case EVENT_SENDMAIL: {
+
+                    if (pollfd->rtnevents & (APR_POLLHUP)) {
+                        do_sendmail_hangup(cd, event);
+                        continue;
+                    }
+
+                    if (pollfd->rtnevents & (APR_POLLOUT)) {
+                        do_sendmail_write(cd, event);
                         continue;
                     }
 

@@ -8,7 +8,7 @@
 .SH SYNOPSIS
 .nf
 .fam C
-\fBconnectcap\fP [\fB-4\fP] [\fB-6\fP] [\fB-v\fP] [\fB-h\fP] \fIaddress:port\fP [\fIaddress:port\fP \.\.\.]
+\fBconnectcap\fP [\fB-4\fP] [\fB-6\fP] [\fB-v\fP] [\fB-h\fP] \fB-l\fP \fIaddress:port\fP [/usr/bin/sendmail \fB-t\fP]
 
 .fam T
 .fi
@@ -25,6 +25,10 @@ idea being to provide predictable diagnostics for each connection.
 .nf
 .fam C
   The daemon will listen on all the addresses and ports specified.
+
+  If a command is specified, it will be interpreted as a tool to
+  send email. The summary and pcap file will be sent to the email
+  address corresponding to the logged in user.
 
 .fam T
 .fi
