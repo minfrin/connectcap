@@ -338,7 +338,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
 
     apr_time_t now = apr_time_now();
 
-    apr_off_t offset = 0, zero = 0, len = 0;
+    apr_off_t offset, zero, len;
 
     apr_status_t status;
 
@@ -395,6 +395,8 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
 
         return status;
     }
+
+    offset = 0, zero = 0, len = 0;
 
     if ((status = apr_file_seek(efd, APR_CUR, &offset)) != APR_SUCCESS) {
         apr_file_printf(cd->err,
@@ -463,6 +465,8 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
 
         return status;
     }
+
+    offset = 0, zero = 0, len = 0;
 
     if ((status = apr_file_seek(wfd, APR_CUR, &offset)) != APR_SUCCESS) {
         apr_file_printf(cd->err,
