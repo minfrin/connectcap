@@ -2494,8 +2494,8 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
     client = &cd->clients[index];
     if (opaque_counter != client->opaque_counter) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: nonce stale for username '%s', auth denied\n",
-                request->number, request->request.sa, username);
+                "connectcap[%d]: browser %pI: nonce stale (%" APR_UINT64_T_FMT "!=%" APR_UINT64_T_FMT ") for username '%s', auth denied\n",
+                request->number, request->request.sa, opaque_counter, client->opaque_counter, username);
 
         request->request.not_authenticated = "Nonce is stale\n";
         request->request.stale = 1;
