@@ -2332,11 +2332,11 @@ apr_status_t do_sendmail_write(connectcap_t* cd, event_t *sendmail)
             apr_size_t requested = length;
 
             if (must_encode) {
-                char buf[76 + sizeof(CRLF) + 1];
+                char buf[76 + strlen(CRLF) + 1];
 
                 apr_encode_base64(buf, data, length, APR_ENCODE_NONE, &length);
-                strcpy(buf + length, "CRLF");
-                length += sizeof(CRLF);
+                strcpy(buf + length, CRLF);
+                length += strlen(CRLF);
 
                 status = apr_file_write(sendmail->sendmail.fd, buf, &length);
             }
