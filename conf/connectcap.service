@@ -5,6 +5,7 @@ After=network-online.target
 
 [Service]
 Type=simple
+UMask=0027
 EnvironmentFile=-/etc/sysconfig/connectcap
 ExecStart=/usr/sbin/connectcap $OPTIONS
 Restart=on-abnormal
