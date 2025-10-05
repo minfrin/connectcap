@@ -2285,7 +2285,9 @@ apr_status_t do_sendmail_write(connectcap_t* cd, event_t *sendmail)
              * encoding before we send them, ideally this is something
              * APR does on its own.
              */
-            apr_bucket_split(b, 57);
+        	if (b->length > 57) {
+        		apr_bucket_split(b, 57);
+        	}
 
             must_encode = 1;
         }
