@@ -237,7 +237,9 @@ static apr_status_t cleanup_event(void *dummy)
             pump->pump.capture = NULL;
         }
 
-        do_sendmail(cd, event);
+        if (!cd->shutdown) {
+            do_sendmail(cd, event);
+        }
 
         break;
     }
@@ -431,7 +433,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     }
 
     b = apr_bucket_file_create(efd, 0, len, pool, cd->alloc);
-    APR_BRIGADE_INSERT_HEAD(obb, b);
+    APR_BRIGADE_INSERT_TAIL(obb, b);
 
     /* in between the text and the attachment */
     apr_brigade_printf(obb, NULL, NULL,
@@ -499,7 +501,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     }
 
     b = apr_bucket_file_create(wfd, 0, len, pool, cd->alloc);
-    APR_BRIGADE_INSERT_HEAD(obb, b);
+    APR_BRIGADE_INSERT_TAIL(obb, b);
 
     /* end of the email */
     apr_brigade_printf(obb, NULL, NULL,
@@ -507,7 +509,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
             boundary);
 
     b = apr_bucket_eos_create(cd->alloc);
-    APR_BRIGADE_INSERT_HEAD(obb, b);
+    APR_BRIGADE_INSERT_TAIL(obb, b);
 
     /* clean up the files */
     apr_file_remove(capture->capture.ename, pool);
