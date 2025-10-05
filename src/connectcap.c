@@ -2510,7 +2510,7 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
 
     if (actual_nc <= client->minimum_nc) {
         apr_file_printf(cd->err,
-                "connectcap[%d]: browser %pI: nc mismatch (%" APR_UINT64_T_FMT "!=%" APR_UINT64_T_FMT ") for username '%s', auth denied\n",
+                "connectcap[%d]: browser %pI: nc mismatch (%" APR_UINT64_T_FMT "<=%" APR_UINT64_T_FMT ") for username '%s', auth denied\n",
                 request->number, request->request.sa, actual_nc, client->minimum_nc, username);
 
         request->request.not_authenticated = "Nonce is stale\n";
