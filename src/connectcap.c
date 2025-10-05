@@ -97,7 +97,7 @@ typedef struct user_t {
 
 typedef struct client_t {
     apr_uint64_t opaque_counter;
-    apr_uint64_t expected_nc;
+    apr_uint64_t minimum_nc;
 } client_t;
 
 typedef struct connectcap_t {
@@ -2038,7 +2038,7 @@ apr_status_t make_proxy_authenticate(connectcap_t* cd, event_t *request)
     index = cd->opaque_counter % DEFAULT_CLIENTS_SIZE;
     client = &cd->clients[index];
     client->opaque_counter = cd->opaque_counter;
-    client->expected_nc = 1;
+    client->minimum_nc = 0;
 
     cd->opaque_counter++;
 
@@ -2508,17 +2508,17 @@ apr_status_t parse_proxy_authorization(connectcap_t* cd, event_t *request, char 
         return APR_SUCCESS;
     }
 
-    if (actual_nc != client->expected_nc) {
+    if (actual_nc <= client->minimum_nc) {
         apr_file_printf(cd->err,
                 "connectcap[%d]: browser %pI: nc mismatch (%" APR_UINT64_T_FMT "!=%" APR_UINT64_T_FMT ") for username '%s', auth denied\n",
-                request->number, request->request.sa, actual_nc, client->expected_nc, username);
+                request->number, request->request.sa, actual_nc, client->minimum_nc, username);
 
         request->request.not_authenticated = "Nonce is stale\n";
         request->request.stale = 1;
         return APR_SUCCESS;
     }
 
-    client->expected_nc++;
+    client->minimum_nc = actual_nc;
 
     /* if we got this far, we're in! */
     request->request.username = apr_pstrdup(request->pool, user->username);
