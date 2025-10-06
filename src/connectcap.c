@@ -72,9 +72,9 @@ static int help(apr_file_t *out, const char *name, const char *msg, int code,
             "\n"
             "  The daemon will listen on all the addresses and ports specified.\n"
             "\n"
-    		"  If a command is specified, it will be interpreted as a tool to\n"
-    		"  send email. The summary and pcap file will be sent to the email\n"
-    		"  address corresponding to the logged in user.\n"
+            "  If a command is specified, it will be interpreted as a tool to\n"
+            "  send email. The summary and pcap file will be sent to the email\n"
+            "  address corresponding to the logged in user.\n"
             "\n"
             "OPTIONS\n", msg ? msg : "", n, n);
 
@@ -324,6 +324,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     apr_pool_t *pool;
     apr_bucket_brigade *obb;
     apr_bucket *b;
+    const char *wname;
     apr_file_t *efd;
     apr_file_t *wfd;
 
@@ -438,6 +439,12 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     APR_BRIGADE_INSERT_TAIL(obb, b);
 
     /* in between the text and the attachment */
+
+    wname = strchr(capture->capture.wname, '/');
+    if (!wname) {
+        wname = capture->capture.wname;
+    }
+
     apr_brigade_printf(obb, NULL, NULL,
             "--connectcap_%s" CRLF
             "Content-Transfer-Encoding: base64" CRLF
@@ -448,8 +455,8 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
             "\tname=\"%s\"" CRLF
             CRLF,
             boundary,
-            capture->capture.wname,
-            capture->capture.wname);
+            wname,
+            wname);
 
     status = apr_file_open(&wfd, capture->capture.wname,
             APR_FOPEN_READ,
@@ -1012,7 +1019,7 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
             request->request.port);
 
     status = apr_file_open(&eml, ename,
-    		APR_FOPEN_READ | APR_FOPEN_WRITE | APR_FOPEN_CREATE | APR_FOPEN_TRUNCATE,
+            APR_FOPEN_READ | APR_FOPEN_WRITE | APR_FOPEN_CREATE | APR_FOPEN_TRUNCATE,
             APR_FPROT_OS_DEFAULT, pool);
     if (APR_SUCCESS != status) {
         apr_file_printf(cd->err,
@@ -1368,6 +1375,7 @@ apr_status_t do_connect(connectcap_t* cd, event_t *request)
     pump->pump.lsa = lsa;
     pump->pump.psa = psa;
     pump->pump.sd = sd;
+    pump->pump.address = apr_pstrdup(pool, request->request.address);
     pump->pump.host = apr_pstrdup(pool, request->request.host);
     pump->pump.scope_id = apr_pstrdup(pool, request->request.scope_id);
     pump->pump.port = request->request.port;
@@ -2290,9 +2298,9 @@ apr_status_t do_sendmail_write(connectcap_t* cd, event_t *sendmail)
              * encoding before we send them, ideally this is something
              * APR does on its own.
              */
-        	if (b->length > 57) {
-        		apr_bucket_split(b, 57);
-        	}
+            if (b->length > 57) {
+                apr_bucket_split(b, 57);
+            }
 
             must_encode = 1;
         }
