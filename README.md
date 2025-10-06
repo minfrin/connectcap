@@ -9,6 +9,15 @@ subsequent analysis with tcpdump or wireshark.
 
 Captures can be optionally emailed to the logged in user.
 
+## downloads
+
+Connectcap is available as RPMs through [COPR] as follows:
+
+```
+dnf copr enable minfrin/connectcap
+dnf install connectcap
+```
+
 ## example with local capture:
 
 In the example below usernames and passwords are read
@@ -79,3 +88,6 @@ Passwords are stored in clear text, and to discourage password
 reuse, password length is restricted to 16 characters or more.
 
 The ccpasswd file must have no group or world permissions.
+
+ [COPR]: <https://copr.fedorainfracloud.org/coprs/minfrin/connectcap/>
+ 
