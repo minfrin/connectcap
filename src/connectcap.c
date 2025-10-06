@@ -2344,6 +2344,8 @@ apr_status_t do_sendmail_write(connectcap_t* cd, event_t *sendmail)
 
             apr_bucket_delete(b);
 
+            apr_pool_destroy(sendmail->pool);
+
             return APR_SUCCESS;
         }
 
