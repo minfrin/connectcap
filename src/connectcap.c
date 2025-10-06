@@ -212,23 +212,25 @@ static apr_status_t cleanup_event(void *dummy)
 
             apr_rfc822_date(datebuf, now);
 
-            apr_file_printf(event->capture.eml, "Stop:\t\t\t\t%s\n",
+            apr_file_printf(event->capture.eml, "Stop:\t\t\t\t%s" CRLF,
                             datebuf);
 
             if (pcap) {
                 struct pcap_stat ps;
                 if (!pcap_stats(pcap, &ps)) {
 
-                    apr_file_printf(event->capture.eml, "Packets received:\t\t%d\n",
+                    apr_file_printf(event->capture.eml, "Packets received:\t\t%d" CRLF,
                             ps.ps_recv);
-                    apr_file_printf(event->capture.eml, "Packets dropped:\t\t%d\n",
+                    apr_file_printf(event->capture.eml, "Packets dropped:\t\t%d" CRLF,
                             ps.ps_drop);
-                    apr_file_printf(event->capture.eml, "Packets dropped by kernel:\t%d\n",
+                    apr_file_printf(event->capture.eml, "Kernel dropped:\t\t%d" CRLF,
                             ps.ps_ifdrop);
 
                 }
 
             }
+
+            apr_file_printf(event->capture.eml, CRLF "--" CRLF);
 
             apr_file_flush(eml);
         }
@@ -445,10 +447,11 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     if (!wname) {
         wname = capture->capture.wname;
     }
+    else {
+        wname++;
+    }
 
     apr_brigade_printf(obb, NULL, NULL,
-            CRLF
-            "--" CRLF
             "--connectcap_%s" CRLF
             "Content-Transfer-Encoding: base64" CRLF
             "Content-Disposition: attachment;" CRLF
@@ -1044,11 +1047,11 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
 
     apr_rfc822_date(datebuf, now);
 
-    apr_file_printf(eml, "Proxy:\t\t\t\t%s\n"
-                         "Start:\t\t\t\t%s\n"
-                         "Origin:\t\t\t\t%s:%d\n"
-                         "Source:\t\t\t\t%pI\n"
-                         "Destination:\t\t\t%pI\n",
+    apr_file_printf(eml, "Proxy:\t\t\t\t%s" CRLF
+                         "Start:\t\t\t\t%s" CRLF
+                         "Origin:\t\t\t\t%s:%d" CRLF
+                         "Source:\t\t\t\t%pI" CRLF
+                         "Destination:\t\t\t%pI" CRLF,
                     cd->hostname, datebuf, pump->pump.host, pump->pump.port,
                     pump->pump.lsa, pump->pump.psa);
 
