@@ -212,7 +212,7 @@ static apr_status_t cleanup_event(void *dummy)
 
             apr_rfc822_date(datebuf, now);
 
-            apr_file_printf(event->capture.eml, "End:\t\t\t\t%s\n",
+            apr_file_printf(event->capture.eml, "Stop:\t\t\t\t%s\n",
                             datebuf);
 
             if (pcap) {
@@ -372,7 +372,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
             "Content-Type: multipart/mixed;" CRLF
             "\tboundary=\"connectcap_%s\"" CRLF
             "To: %s" CRLF
-            "Subject: [ConnectCap][%d] %s" CRLF
+            "Subject: [ConnectCap][%s][%d] %s" CRLF
             CRLF
             "--connectcap_%s" CRLF
             "Content-Transfer-Encoding: base64" CRLF
@@ -380,6 +380,7 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
             CRLF,
             boundary,
             capture->capture.mail,
+            cd->hostname,
             capture->number,
             capture->capture.address,
             boundary);
@@ -446,6 +447,8 @@ apr_status_t do_sendmail(connectcap_t* cd, event_t *capture)
     }
 
     apr_brigade_printf(obb, NULL, NULL,
+            CRLF
+            "--" CRLF
             "--connectcap_%s" CRLF
             "Content-Transfer-Encoding: base64" CRLF
             "Content-Disposition: attachment;" CRLF
@@ -1041,11 +1044,12 @@ apr_status_t do_capture(connectcap_t* cd, event_t *request, event_t *pump)
 
     apr_rfc822_date(datebuf, now);
 
-    apr_file_printf(eml, "Start:\t\t\t\t%s\n"
+    apr_file_printf(eml, "Proxy:\t\t\t\t%s\n"
+                         "Start:\t\t\t\t%s\n"
                          "Origin:\t\t\t\t%s:%d\n"
                          "Source:\t\t\t\t%pI\n"
                          "Destination:\t\t\t%pI\n",
-                    datebuf, pump->pump.host, pump->pump.port,
+                    cd->hostname, datebuf, pump->pump.host, pump->pump.port,
                     pump->pump.lsa, pump->pump.psa);
 
 
@@ -2874,6 +2878,8 @@ int main(int argc, const char * const argv[])
     cd.listen = apr_array_make(cd.pool, 2, sizeof(const char *));
 
     cd.clients = apr_pcalloc(cd.pool, DEFAULT_CLIENTS_SIZE * sizeof(client_t));
+
+    apr_gethostname(cd.hostname, sizeof(cd.hostname), cd.pool);
 
     apr_getopt_init(&opt, cd.pool, argc, argv);
     while ((status = apr_getopt_long(opt, cmdline_opts, &optch, &optarg))
