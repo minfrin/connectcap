@@ -12,6 +12,7 @@ BuildRequires: clang
 BuildRequires: autoconf
 BuildRequires: automake
 BuildRequires: libtool
+BuildRequires: systemd
 BuildRequires: pkgconfig(apr-1)
 BuildRequires: pkgconfig(apr-util-1)
 BuildRequires: pkgconfig(libcrypto)
