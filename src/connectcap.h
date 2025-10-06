@@ -111,6 +111,7 @@ typedef struct connectcap_t {
     apr_file_t *err;
     apr_file_t *in;
     apr_file_t *out;
+    char hostname[APRMAXHOSTLEN + 1];
     const char *laddr4;
     const char *laddr6;
     const char *interface;
