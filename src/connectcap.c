@@ -34,6 +34,7 @@ static const apr_getopt_option_t
     { "directory", 'd', 1, "  -d, --directory path\t\t\tPath to the directory where capture files are saved. Defaults to the current directory." },
     { "interface", 'i', 1, "  -i, --interface dev\t\t\tInterface containing the source addresses. This interface will be used to capture traffic." },
     { "listen", 'l', 1, "  -l, --listen [addr:]port\t\t\tListen to this IP address and port for proxy requests. If IP address is unspecified, binds to all IPs on the port specified." },
+    { "size", 's', 1, "  -s, --size num\t\t\tSize beyond which captures should be truncated." },
     { "passwd", 'p', 1, "  -p, --passwd path\t\t\tFile containing usernames and passwords." },
     { "realm", 'r', 1, "  -r, --realm name\t\t\tName of the realm. Defaults to " DEFAULT_REALM "." },
     { NULL }
@@ -2253,6 +2254,18 @@ apr_status_t do_capture_read(connectcap_t* cd, event_t *capture)
         return APR_EGENERAL;
     }
 
+    capture->capture.bytes_captured += pkt_header->caplen;
+
+    if (capture->capture.bytes_captured > cd->size) {
+        apr_file_printf(cd->err,
+                "connectcap[%d]: capture exceeds %" APR_SIZE_T_FMT " bytes, truncating capture\n",
+                capture->number, capture->capture.bytes_captured);
+
+        apr_pool_destroy(capture->pool);
+
+        return APR_EGENERAL;
+    }
+
     pcap_dump((u_char *)capture->capture.dumper, pkt_header, pkt_data);
     rc = pcap_dump_flush(capture->capture.dumper);
     if (PCAP_ERROR == rc) {
@@ -2877,6 +2890,7 @@ int main(int argc, const char * const argv[])
     cd.directory = DEFAULT_DIRECTORY;
     cd.passwd = DEFAULT_PASSWD_FILE;
     cd.realm = DEFAULT_REALM;
+    cd.size = DEFAULT_CAPTURE_SIZE;
 
     cd.listen = apr_array_make(cd.pool, 2, sizeof(const char *));
 
@@ -2922,6 +2936,13 @@ int main(int argc, const char * const argv[])
         }
         case 'r': {
             cd.realm = optarg;
+            break;
+        }
+        case 's': {
+            cd.size = apr_strtoi64(optarg, NULL, 10);
+            if (APR_SUCCESS != errno || cd.size < 0) {
+                return help(cd.err, argv[0], "Size specified with -s must be numeric and positive.\n", EXIT_FAILURE, cmdline_opts);
+            }
             break;
         }
         case 'v': {

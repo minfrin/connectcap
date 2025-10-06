@@ -56,6 +56,7 @@
 #define DEFAULT_PASSWD_FILE "ccpasswd"
 #define DEFAULT_REALM "connectcap"
 #define DEFAULT_CLIENTS_SIZE 16384
+#define DEFAULT_CAPTURE_SIZE 100 * 1024
 
 #define PASSWORD_MIN 16
 
@@ -130,6 +131,7 @@ typedef struct connectcap_t {
     prefer_e prefer;
     apr_int32_t family;
     apr_int32_t flags;
+    apr_size_t size;
     int verbose;
     int shutdown;
 } connectcap_t;
@@ -455,6 +457,11 @@ typedef struct capture_t {
      * Name of the eml file
      */
     const char *ename;
+
+    /**
+     * Bytes captured so far
+     */
+    apr_size_t bytes_captured;
 } capture_t;
 
 typedef struct sendmail_t {
