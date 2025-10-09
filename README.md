@@ -9,6 +9,18 @@ subsequent analysis with tcpdump or wireshark.
 
 Captures can be optionally emailed to the logged in user.
 
+## what is it for?
+
+Connectcap is designed to troubleshoot problems at the
+network layer, rather than the layers above. If you have
+a need to record traffic with tcpdump or wireshark, this
+proxy will do that recording for you without the
+hit-and-miss of running tcpdump by hand.
+
+This allows you to find problems that may only be visible
+on some parts of the internet and not others, caused by
+issues such as broken MTU path discovery.
+
 ## downloads
 
 Connectcap is available as RPMs through [COPR] as follows:
